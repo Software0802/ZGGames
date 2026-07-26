@@ -141,16 +141,27 @@ void light() {
 	float k = mix(near_v, far_v, clamp(v_view_dist / ramp_blend_dist, 0.0, 1.0));
 
 	// 诊断：把光照链路上每一环单独显示出来（配合 fragment 里把 ALBEDO 置 1）。
-	if (debug_mode == 5) { DIFFUSE_LIGHT += vec3(ATTENUATION); return; }
-	if (debug_mode == 6) { DIFFUSE_LIGHT += vec3(ndl * 0.5 + 0.5); return; }
-	if (debug_mode == 7) { DIFFUSE_LIGHT += vec3(k); return; }
-	if (debug_mode == 8) { DIFFUSE_LIGHT += LIGHT_COLOR / PI; return; }
-
-	// 【不要乘 ALBEDO】DIFFUSE_LIGHT 只累加**光**，引擎在之后自己乘上 ALBEDO。
-	// 官方 light() 示例即 `DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0, 1)
-	//  * ATTENUATION * LIGHT_COLOR / PI;`，同样没有 ALBEDO。
-	// 这里若再乘一次，albedo 会被平方：中绿 0.16 变成 0.026，整片地形黑掉，
-	// 而且极难定位 —— 本工程实际按「阴影 / 太阳角 / 色彩空间」查了好几轮才找到。
-	// LIGHT_COLOR 已含 energy × PI，所以要除回 PI。
-	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * k / PI;
+	//
+	// 【不要在 light() 里写 return】Godot 明确禁止：
+	// 「Using 'return' in the 'light' processor function is incorrect.」
+	// 这不是警告而是编译错误，整个着色器会编译失败并回退到默认材质 ——
+	// 画面表现为地形变成一整块**纯白平面、无顶点位移**，看起来极像数据或
+	// 流式加载出了问题，与着色器完全联系不起来。诊断分支必须写成 if/else 链。
+	if (debug_mode == 5) {
+		DIFFUSE_LIGHT += vec3(ATTENUATION);
+	} else if (debug_mode == 6) {
+		DIFFUSE_LIGHT += vec3(ndl * 0.5 + 0.5);
+	} else if (debug_mode == 7) {
+		DIFFUSE_LIGHT += vec3(k);
+	} else if (debug_mode == 8) {
+		DIFFUSE_LIGHT += LIGHT_COLOR / PI;
+	} else {
+		// 【不要乘 ALBEDO】DIFFUSE_LIGHT 只累加**光**，引擎在之后自己乘上 ALBEDO。
+		// 官方 light() 示例即 `DIFFUSE_LIGHT += clamp(dot(NORMAL, LIGHT), 0, 1)
+		//  * ATTENUATION * LIGHT_COLOR / PI;`，同样没有 ALBEDO。
+		// 这里若再乘一次，albedo 会被平方：中绿 0.16 变成 0.026，整片地形黑掉，
+		// 而且极难定位 —— 本工程实际按「阴影 / 太阳角 / 色彩空间」查了好几轮才找到。
+		// LIGHT_COLOR 已含 energy × PI，所以要除回 PI。
+		DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * k / PI;
+	}
 }
