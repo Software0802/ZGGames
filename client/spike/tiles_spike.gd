@@ -77,6 +77,15 @@ var _yaw: float = NAN
 var _sse: float = NAN     ## maximum_screen_space_error，越小 LOD 越精细、瓦片越多
 var _toon: bool = false   ## --toon：叠加「动漫写实」后处理，产出 S5 引擎决策要的对比组
 
+## --diag：排查「贴地时近处地面几何缺失」。
+## 决定性判据是碰撞体与渲染网格的分布差异——射线每帧都能命中地面，说明几何数据
+## 已经到了引擎里；若同一位置没有可见的 MeshInstance3D，问题就在渲染侧而不是数据侧。
+var _diag: bool = false
+var _diag_step: int = -1
+const DIAG_SSE: Array[float] = [8.0, 32.0, 128.0]
+const DIAG_LEAD_IN := 14.0   ## 落地在 t=10，再留几秒让瓦片跟上
+const DIAG_STEP := 10.0
+
 ## --walk：贴地步行视角。同时验证两件 S1 的前置条件——
 ## 一是摄影测量在人眼高度到底「融化」到什么程度，二是瓦片能否生成可站立的碰撞体。
 var _walk: bool = false
@@ -88,6 +97,7 @@ var _walk_first_depth: float = 0.0    ## 首次命中时地面在原点下方多
 var _walk_last_depth: float = 0.0
 var _walk_depth_min: float = INF      ## 地面高度随 LOD 换入的漂移区间，S1 角色贴地的定量依据
 var _walk_depth_max: float = -INF
+var _walk_skipped_max: int = 0        ## 单帧内跳过的「碰撞体还在但已不渲染」的旧瓦片数
 
 var _georeference: Node3D = null
 var _tileset: Node = null
@@ -121,7 +131,14 @@ func _scan_tick() -> void:
 	var step := int((_elapsed - SCAN_LEAD_IN) / SCAN_STEP)
 	if step < SCAN_PITCHES.size() and step != _scan_step:
 		_scan_step = step
-		_camera.rotation_degrees = Vector3(SCAN_PITCHES[step], 0.0, 0.0)
+		# 必须走 _local_basis，不能直接设欧拉角：引擎的 +Y 是地轴北极而不是当地天顶，
+		# 直接设欧拉角得到的是相对地轴的俯角（见 _local_basis 的说明）。
+		var site: Dictionary = SITES[_site_key]
+		var yaw: float = _yaw if not is_nan(_yaw) else float(site["yaw"])
+		var b := _local_basis(_site_lat(), _site_lon())
+		b = b.rotated(b.y, deg_to_rad(-yaw))
+		b = b.rotated(b.x, deg_to_rad(SCAN_PITCHES[step]))
+		_camera.global_transform = Transform3D(b, _camera.global_position)
 		_scan_shot_at = _elapsed + SCAN_SETTLE
 		print("[S0][扫描] 俯角 → %+.0f°" % SCAN_PITCHES[step])
 	if _scan_shot_at > 0.0 and _elapsed >= _scan_shot_at:
@@ -146,12 +163,36 @@ func _walk_tick() -> void:
 	# 起点抬到头顶 100 m：LOD 换入后地面可能升到相机之上，从眼睛位置往下打会直接漏掉。
 	q.from = _camera.global_position + up * 100.0
 	q.to = _camera.global_position - up * 500.0
-	var hit := space.intersect_ray(q)
+
+	# 关键：必须跳过「碰撞体还在、但网格已经不渲染」的旧 LOD 瓦片。
+	#
+	# 插件用 create_trimesh_collision() 生成碰撞体，StaticBody3D 是 MeshInstance3D 的
+	# 子节点（名字带 _col）。LOD 换代时旧瓦片的 MeshInstance3D 被设为不可见，但它的
+	# 碰撞体仍留在物理世界里。直接取第一个命中，就会把相机吸附到一个**不再被渲染**的
+	# 旧表面上——而真正在渲染的新表面在更高处，于是相机位于地形内部，向下看到的是
+	# 双面材质的背面：整片纯黑（不是空，是黑，这两者必须分清）。
+	# 逐个排除不可见的命中，直到找到一个其网格确实在渲染的表面。
+	var hit: Dictionary = {}
+	var excluded: Array[RID] = []
+	var skipped := 0
+	for _attempt in 8:
+		q.exclude = excluded
+		var h := space.intersect_ray(q)
+		if h.is_empty():
+			break
+		var body := h.get("collider") as Node
+		var mi := (body.get_parent() if body != null else null) as MeshInstance3D
+		if mi == null or mi.is_visible_in_tree():
+			hit = h
+			break
+		excluded.append(h["rid"])
+		skipped += 1
 	if hit.is_empty():
 		_walk_probe_log += 1
 		if _walk_probe_log % 120 == 1:
-			print("[S0][步行] t=%.1f s 射线未命中地面（碰撞体尚未生成？）" % _elapsed)
+			print("[S0][步行] t=%.1f s 射线未命中可见地面（跳过 %d 个不可见瓦片）" % [_elapsed, skipped])
 		return
+	_walk_skipped_max = maxi(_walk_skipped_max, skipped)
 	var ground: Vector3 = hit.position
 	# 以原点（= georeference 的经纬度 + 椭球高）为基准，量出地面到底在下方多少米。
 	var depth := -ground.dot(up)
@@ -168,7 +209,94 @@ func _walk_tick() -> void:
 	_walk_depth_max = maxf(_walk_depth_max, depth)
 
 
+## 把瓦片树里的渲染网格与碰撞体按「离相机多远」分箱统计。
+##
+## 排查思路：射线每帧都命中地面，说明碰撞几何存在于相机脚下；那么画面下半为空
+## 只可能是两种情况之一——渲染网格根本没提交（数据侧），或者提交了但被剔除
+## （渲染侧）。分别数出来就能定论，不必再猜。
+func _diag_dump(tag: String) -> void:
+	var cam := _camera.global_position
+	var mesh_total := 0
+	var mesh_visible := 0
+	var mesh_near := 0        # 中心距相机 < 300 m
+	var mesh_near_visible := 0
+	var mesh_contains := 0    # AABB 直接包住相机
+	var nearest_mesh := INF
+	var body_total := 0
+	var body_near := 0
+	var nearest_body := INF
+
+	var stack: Array[Node] = [_tileset]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		var mi := n as MeshInstance3D
+		if mi != null:
+			mesh_total += 1
+			var box: AABB = mi.global_transform * mi.get_aabb()
+			var d := box.get_center().distance_to(cam)
+			nearest_mesh = minf(nearest_mesh, d)
+			var vis := mi.is_visible_in_tree()
+			if vis:
+				mesh_visible += 1
+			if d < 300.0:
+				mesh_near += 1
+				if vis:
+					mesh_near_visible += 1
+			if box.has_point(cam):
+				mesh_contains += 1
+			continue
+		var sb := n as CollisionShape3D
+		if sb != null:
+			body_total += 1
+			var d2 := sb.global_position.distance_to(cam)
+			nearest_body = minf(nearest_body, d2)
+			if d2 < 300.0:
+				body_near += 1
+
+	print("[S0][诊断:%s] t=%.0fs sse=%s" % [tag, _elapsed, _tileset.get("maximum_screen_space_error")])
+	print("    渲染网格 总%d 可见%d ｜ 300m内 %d(可见%d) ｜ AABB含相机 %d ｜ 最近 %.1f m" % [
+		mesh_total, mesh_visible, mesh_near, mesh_near_visible, mesh_contains, nearest_mesh])
+	print("    碰撞形状 总%d ｜ 300m内 %d ｜ 最近 %.1f m" % [body_total, body_near, nearest_body])
+	print("    当帧三角面 %d ｜ draw call %d" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)])
+
+	# 相机到底在地形的哪一侧：上下各打一条短射线，直接问，不推测。
+	# 向上命中 = 相机位于某个表面之下，那么向下看到的黑色就是双面材质的背面。
+	var up := _local_basis(_site_lat(), _site_lon()).y
+	var space := get_world_3d().direct_space_state
+	for probe in [{"n": "向下", "d": -1.0}, {"n": "向上", "d": 1.0}]:
+		var q := PhysicsRayQueryParameters3D.new()
+		q.from = cam
+		q.to = cam + up * (60.0 * float(probe["d"]))
+		var h := space.intersect_ray(q)
+		if h.is_empty():
+			print("    %s 60 m 内无命中" % probe["n"])
+			continue
+		var body := h.get("collider") as Node
+		var mi := (body.get_parent() if body != null else null) as MeshInstance3D
+		print("    %s 命中距离 %.2f m ｜ 对应网格可见=%s" % [
+			probe["n"], cam.distance_to(h["position"]),
+			str(mi.is_visible_in_tree()) if mi != null else "非网格子节点"])
+
+
+func _diag_tick() -> void:
+	if _elapsed < DIAG_LEAD_IN:
+		return
+	var step := int((_elapsed - DIAG_LEAD_IN) / DIAG_STEP)
+	if step >= DIAG_SSE.size() or step == _diag_step:
+		return
+	_diag_step = step
+	# sse 是运行时可改的：一次会话里把「LOD 精度」这个变量扫完，省 2 次计费配额。
+	_tileset.set("maximum_screen_space_error", DIAG_SSE[step])
+	print("[S0][诊断] maximum_screen_space_error → %.0f" % DIAG_SSE[step])
+
+
 func _save_shot(tag: String) -> void:
+	if _diag:
+		_diag_dump(tag)
 	var img := get_viewport().get_texture().get_image()
 	var dir := _capture_dir
 	if not dir.ends_with("/"):
@@ -242,6 +370,8 @@ func _parse_cli() -> void:
 					_walk_eye_m = float(args[i])
 			"--toon":
 				_toon = true
+			"--diag":
+				_diag = true
 			"--pitch":
 				i += 1
 				if i < args.size():
@@ -311,20 +441,34 @@ func _build_world(key: String) -> void:
 	var site: Dictionary = SITES[_site_key]
 
 	# 太阳。实景瓦片的纹理已烘焙了真实光照，这里只补一点方向光让几何起伏可读。
+	#
+	# 方向必须相对**当地水平面**构造，不能对 DirectionalLight3D 直接设欧拉角：
+	# 引擎的 +Y 是地轴北极而不是当地天顶（见 _local_basis），在 43.9°N 两者差 46°。
+	# 按引擎轴设 -45° 俯角，实际相当于太阳压到当地地平线以下，地面只剩环境光——
+	# 空中视角因为坡面朝向各异还看得过去，贴地看脚下的水平面就是一片近乎纯黑。
 	var sun := DirectionalLight3D.new()
 	sun.name = "Sun"
 	sun.light_energy = 1.0
-	sun.rotation_degrees = Vector3(-45.0, 135.0, 0.0)
 	add_child(sun)
+	var lb := _local_basis(_site_lat(), _site_lon())
+	var north := -lb.z
+	var elev := deg_to_rad(52.0)    # 太阳高度角
+	var az := deg_to_rad(150.0)     # 方位角，从正北顺时针
+	var to_sun := (lb.y * sin(elev) + (north * cos(az) + lb.x * sin(az)) * cos(elev)).normalized()
+	sun.global_position = to_sun * 1000.0
+	sun.look_at(Vector3.ZERO, lb.y)   # 光照方向 = -to_sun
 
 	var env := WorldEnvironment.new()
 	env.name = "Env"
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.45, 0.6, 0.8)
+	# 诊断模式把背景换成品红：这是 v003 第五节第 1 条留下的方法——
+	# 「画面上少了东西」时先把背景改成刺眼纯色，一步区分「没画」和「画黑了」。
+	e.background_color = Color(1.0, 0.0, 1.0) if _diag else Color(0.45, 0.6, 0.8)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.6, 0.65, 0.72)
-	e.ambient_light_energy = 0.55
+	# 诊断时把环境光拉高：用来区分「材质/几何有问题」与「地面确实在那里、只是很暗」。
+	e.ambient_light_energy = 2.0 if _diag else 0.55
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	if _toon:
 		# 动画质感里雪面与水面的高光是「发光」的，靠 glow 比靠提亮更像。
@@ -481,6 +625,8 @@ func _process(delta: float) -> void:
 
 	if _walk:
 		_walk_tick()
+	if _diag:
+		_diag_tick()
 	_drive_tileset()
 
 	# 判定瓦片是否真的进了画面：以渲染出来的三角面为准。HUD 文字自身约 500 面，
@@ -563,7 +709,7 @@ func _maybe_capture() -> void:
 	# 在固定时刻各截一张：早期(瓦片刚进)、中期、末期(LOD 收敛)，用于观感对比。
 	# 步行模式的节奏不同：落地在 t=10 前后，之后还要等高 LOD 瓦片换入，
 	# 所以第一张放在落地前作对照，后面几张拉开间隔看细节是否还在长。
-	var marks := [9.0, 20.0, 35.0, 50.0, 64.0] if _walk else [5.0, 15.0, 30.0]
+	var marks := [12.0, 22.0, 32.0, 42.0] if _diag else ([9.0, 20.0, 35.0, 50.0, 64.0] if _walk else [5.0, 15.0, 30.0])
 	if _captured >= marks.size():
 		return
 	if _elapsed < float(marks[_captured]):
@@ -589,3 +735,4 @@ func _report() -> void:
 			_walk_depth_min, _walk_depth_max, _walk_depth_max - _walk_depth_min])
 		print("　　（同一水平位置的地面高度随 LOD 换入的变化幅度；")
 		print("　　  S1 的角色控制器必须每帧重新贴地，一次性落位会悬空或埋入）")
+		print("单帧最多跳过  : %d 个「碰撞体还在但网格已不渲染」的旧 LOD 瓦片" % _walk_skipped_max)
