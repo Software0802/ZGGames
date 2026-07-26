@@ -10,6 +10,17 @@ extends Node3D
 ##   godot --path . client/spike/tiles_spike.tscn
 ##   godot --path . client/spike/tiles_spike.tscn -- --site tianchi --seconds 60 --capture out/
 ##
+## 参数：
+##   --site <key>    观测点，见 SITES
+##   --walk          贴地步行模式（开碰撞网格、收紧 LOD、切近裁面、每帧射线贴地）
+##   --eye <米>      步行眼高，默认 1.7
+##   --toon          叠加「动漫写实」后处理
+##   --pitch/--yaw   相机俯角与方位（度），不给则用观测点默认值
+##   --sse <值>      maximum_screen_space_error，越小 LOD 越精细
+##   --scan          一次会话里把俯角依次打到 0/-20/-40/-60/-90/+20 各截一张
+##   --seconds <秒>  跑多久后输出指标并退出
+##   --capture <目录> 截图输出目录
+##
 ## API key 来源（按优先级）：
 ##   1. 命令行 --key <KEY>
 ##   2. 环境变量 GOOGLE_MAPS_API_KEY
@@ -41,6 +52,10 @@ const SITES := {
 		"altitude": 3400.0,
 		"yaw": 168.0,
 		"pitch": -20.0,
+		# 步行落点另取湖北岸岸边：空中观景位在山脊上，站上去看不到湖；
+		# 湖心落点会「站在水面上」（湖面椭球高约 1844 m，实测射线确实命中水面）。
+		"walk_lat": 43.8952,
+		"walk_lon": 88.1215,
 	},
 	"urumqi": {
 		"name": "乌鲁木齐市区",
@@ -59,6 +74,20 @@ var _capture_dir: String = ""
 var _cli_key: String = ""
 var _pitch: float = NAN   ## NAN = 用观测点自带的默认角度
 var _yaw: float = NAN
+var _sse: float = NAN     ## maximum_screen_space_error，越小 LOD 越精细、瓦片越多
+var _toon: bool = false   ## --toon：叠加「动漫写实」后处理，产出 S5 引擎决策要的对比组
+
+## --walk：贴地步行视角。同时验证两件 S1 的前置条件——
+## 一是摄影测量在人眼高度到底「融化」到什么程度，二是瓦片能否生成可站立的碰撞体。
+var _walk: bool = false
+var _walk_eye_m: float = 1.7      ## 人眼离地高度
+var _walk_drop_at: float = 10.0   ## 先在空中等这么久，让瓦片与物理网格就位再落地
+var _walk_landed: bool = false
+var _walk_probe_log: int = 0
+var _walk_first_depth: float = 0.0    ## 首次命中时地面在原点下方多少米
+var _walk_last_depth: float = 0.0
+var _walk_depth_min: float = INF      ## 地面高度随 LOD 换入的漂移区间，S1 角色贴地的定量依据
+var _walk_depth_max: float = -INF
 
 var _georeference: Node3D = null
 var _tileset: Node = null
@@ -98,6 +127,45 @@ func _scan_tick() -> void:
 	if _scan_shot_at > 0.0 and _elapsed >= _scan_shot_at:
 		_scan_shot_at = -1.0
 		_save_shot("pitch%+03d" % int(SCAN_PITCHES[_scan_step]))
+
+
+## 用物理射线问出真实地面，再把相机放到地面上方 _walk_eye_m。
+##
+## 不能靠 ground_m 算：那是海拔（正高），而 georeference 的 altitude 是椭球高，
+## 两者在新疆差着几十米的大地水准面起伏——几十米的误差在空中无所谓，在步行视角
+## 就是「悬在半空」或「埋进山里」。射线问出来的是瓦片几何本身，没有这个误差。
+##
+## 射线能否命中同时也是结论本身：命中说明 create_physics_meshes 确实生成了可用的
+## 碰撞体，S1 的第三人称行走有着落；不命中则说明角色落地得另想办法。
+func _walk_tick() -> void:
+	if _elapsed < _walk_drop_at:
+		return
+	var up := _local_basis(_site_lat(), _site_lon()).y
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.new()
+	# 起点抬到头顶 100 m：LOD 换入后地面可能升到相机之上，从眼睛位置往下打会直接漏掉。
+	q.from = _camera.global_position + up * 100.0
+	q.to = _camera.global_position - up * 500.0
+	var hit := space.intersect_ray(q)
+	if hit.is_empty():
+		_walk_probe_log += 1
+		if _walk_probe_log % 120 == 1:
+			print("[S0][步行] t=%.1f s 射线未命中地面（碰撞体尚未生成？）" % _elapsed)
+		return
+	var ground: Vector3 = hit.position
+	# 以原点（= georeference 的经纬度 + 椭球高）为基准，量出地面到底在下方多少米。
+	var depth := -ground.dot(up)
+	_camera.global_position = ground + up * _walk_eye_m
+	if not _walk_landed:
+		_walk_landed = true
+		_walk_first_depth = depth
+		print("[S0][步行] 落地 t=%.2f s：地面在原点下方 %.2f m，碰撞体 %s" % [
+			_elapsed, depth, hit.collider])
+	# 每帧重新吸附，而不是一次定位就完事：瓦片 LOD 持续换入，同一位置的地面高度会变，
+	# 一次性落位的结果是精细瓦片到位后相机悬在半空。S1 的角色控制器必须按这个模式做。
+	_walk_last_depth = depth
+	_walk_depth_min = minf(_walk_depth_min, depth)
+	_walk_depth_max = maxf(_walk_depth_max, depth)
 
 
 func _save_shot(tag: String) -> void:
@@ -162,6 +230,18 @@ func _parse_cli() -> void:
 					_cli_key = args[i]
 			"--scan":
 				_scan = true
+			"--walk":
+				_walk = true
+			"--sse":
+				i += 1
+				if i < args.size():
+					_sse = float(args[i])
+			"--eye":
+				i += 1
+				if i < args.size():
+					_walk_eye_m = float(args[i])
+			"--toon":
+				_toon = true
 			"--pitch":
 				i += 1
 				if i < args.size():
@@ -216,6 +296,17 @@ static func _redact(key: String) -> String:
 	return key.substr(0, 4) + "…" + key.substr(key.length() - 4, 4)
 
 
+## 实际使用的经纬度：步行模式下观测点可能另有落点（空中观景位常在山脊上，站上去看不到景）。
+func _site_lat() -> float:
+	var site: Dictionary = SITES[_site_key]
+	return float(site["walk_lat"]) if _walk and site.has("walk_lat") else float(site["lat"])
+
+
+func _site_lon() -> float:
+	var site: Dictionary = SITES[_site_key]
+	return float(site["walk_lon"]) if _walk and site.has("walk_lon") else float(site["lon"])
+
+
 func _build_world(key: String) -> void:
 	var site: Dictionary = SITES[_site_key]
 
@@ -235,6 +326,13 @@ func _build_world(key: String) -> void:
 	e.ambient_light_color = Color(0.6, 0.65, 0.72)
 	e.ambient_light_energy = 0.55
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	if _toon:
+		# 动画质感里雪面与水面的高光是「发光」的，靠 glow 比靠提亮更像。
+		e.glow_enabled = true
+		e.glow_intensity = 0.5
+		e.glow_bloom = 0.15
+		e.glow_hdr_threshold = 0.92
+		e.background_color = Color(0.42, 0.62, 0.86)
 	env.environment = e
 	add_child(env)
 
@@ -243,9 +341,12 @@ func _build_world(key: String) -> void:
 	_georeference.name = "CesiumGeoreference"
 	add_child(_georeference)
 	_georeference.set("origin_type", ORIGIN_CARTOGRAPHIC)
-	_georeference.set("latitude", site["lat"])
-	_georeference.set("longitude", site["lon"])
-	_georeference.set("altitude", site["altitude"])
+	_georeference.set("latitude", _site_lat())
+	_georeference.set("longitude", _site_lon())
+	# 步行模式先把原点放在地面上方 150 m：既保证一定在地表之上（ground_m 是海拔，
+	# 与 georeference 要的椭球高差着一个大地水准面起伏，不能直接当椭球高用），
+	# 又足够近，落地射线不必打太长。真正的地面高度靠射线问出来。
+	_georeference.set("altitude", (float(site["ground_m"]) + 150.0) if _walk else site["altitude"])
 
 	# 瓦片集。data_source = From Url 时走 url，完全不碰 Cesium ion。
 	# 属性必须在 add_child 之前设完：tileset 在进入场景树时就按当时的 data_source/url
@@ -254,8 +355,12 @@ func _build_world(key: String) -> void:
 	_tileset.name = "GoogleTileset"
 	_tileset.set("data_source", DATA_SOURCE_URL)
 	_tileset.set("url", "%s?key=%s" % [GOOGLE_ROOT_URL, key])
-	_tileset.set("maximum_screen_space_error", 16.0)
-	_tileset.set("create_physics_meshes", false)
+	# 贴地时默认把误差阈值收紧一档：步行视角要评估的正是最高 LOD 下的观感，
+	# 用空中那档 16.0 会低估细节、也高估性能。
+	_tileset.set("maximum_screen_space_error", _sse if not is_nan(_sse) else (8.0 if _walk else 16.0))
+	# 碰撞网格只在步行模式生成：它是 S1「角色站在实景瓦片上」的前置条件，
+	# 但对纯观光视角是纯开销。
+	_tileset.set("create_physics_meshes", _walk)
 	_georeference.add_child(_tileset)
 
 	# 坐标系对齐：Cesium 是 Z-up，Godot 是 Y-up。这一对相反的 90° 来自插件自带的
@@ -269,21 +374,30 @@ func _build_world(key: String) -> void:
 	# LOD 选择只依赖每帧调用 tileset.update_tileset(engine→ECEF 的相机变换)，自己调更可控。
 	_camera = Camera3D.new()
 	_camera.name = "SpikeCamera"
-	_camera.near = 9.0
-	_camera.far = 35358652.0
+	# 空中沿用插件的 near=9 m / far=3.5 万 km（地球尺度下压 z-fighting 的取值）。
+	# 步行必须换一套：眼高只有 1.7 m，near=9 会把脚下整片地面裁掉——画面下半变成
+	# 纯背景色，看起来极像「瓦片没加载」，实际是近裁面切的。far 同步压到 30 km
+	# 换回深度精度，贴地时本来也看不了 3.5 万公里。
+	_camera.near = 0.2 if _walk else 9.0
+	_camera.far = 30000.0 if _walk else 35358652.0
 	_camera.fov = 55.0
 	_camera.current = true
 	add_child(_camera)
 	# 俯角取 20–30°：实景瓦片最扬长避短的「观光视角」——高到看不出摄影测量的融化，低到有纵深。
-	var pitch: float = _pitch if not is_nan(_pitch) else float(site["pitch"])
+	var default_pitch: float = -6.0 if _walk else float(site["pitch"])
+	var pitch: float = _pitch if not is_nan(_pitch) else default_pitch
 	var yaw: float = _yaw if not is_nan(_yaw) else float(site["yaw"])
-	var b := _local_basis(site["lat"], site["lon"])
+	var b := _local_basis(_site_lat(), _site_lon())
 	b = b.rotated(b.y, deg_to_rad(-yaw))    # 绕当地天顶转方位
 	b = b.rotated(b.x, deg_to_rad(pitch))   # 再绕转过之后的「右」轴压俯角
 	_camera.global_transform = Transform3D(b, _camera.global_position)
 
-	print("[S0] 观测点=%s (%.6f, %.6f) 相机高度=%.0f m" % [
-		site["name"], site["lat"], site["lon"], site["altitude"]])
+	if _toon:
+		_build_toon_post()
+
+	print("[S0] 观测点=%s (%.6f, %.6f) 模式=%s 原点椭球高=%.0f m sse=%s" % [
+		site["name"], _site_lat(), _site_lon(), "步行" if _walk else "空中",
+		_georeference.get("altitude"), _tileset.get("maximum_screen_space_error")])
 	print("[S0] tileset url = %s?key=%s" % [GOOGLE_ROOT_URL, _redact(key)])
 	print("[S0] 回读 data_source=%s url_len=%d ssE=%s" % [
 		_tileset.get("data_source"), String(_tileset.get("url")).length(),
@@ -298,6 +412,40 @@ func _build_world(key: String) -> void:
 	print("[S0] 地心在引擎空间 = %s  长度 %.0f m  归一化方向 %s" % [center, center.length(), center.normalized()])
 	var to_engine: Transform3D = _georeference.call("get_tx_ecef_to_engine")
 	print("[S0] ecef→engine basis: x=%s y=%s z=%s" % [to_engine.basis.x, to_engine.basis.y, to_engine.basis.z])
+
+
+## 「动漫写实」后处理：挂在相机下的一张全屏 quad。
+func _build_toon_post() -> void:
+	var quad := MeshInstance3D.new()
+	quad.name = "ToonPost"
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(2.0, 2.0)   # 顶点落在 [-1,1]，vertex 里直接当 NDC 用
+	quad.mesh = mesh
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://client/spike/toon_post.gdshader")
+	mat.render_priority = 100       # 保证在所有实景瓦片之后画
+	# 这组参数是照着大尺度实景地形调的，与角色/室内场景的取值不通用：
+	# - 描边压到很弱且阈值放大：山坡在掠射角下相邻像素深度差极大，
+	#   按常规阈值会把整片山坡画成碎裂纹，而不是轮廓线。
+	# - 空气透视的作用距离拉到 50 km：空中视角的可见地形本就有几十公里，
+	#   按近景的 14 km 会让整幅画面泛蓝、吃掉山体固有色。
+	# 新海诚式观感的主要来源是通透高饱和与空气透视，不是赛璐璐描边。
+	mat.set_shader_parameter("saturation", 1.45)
+	mat.set_shader_parameter("contrast", 1.06)
+	mat.set_shader_parameter("levels", 10)
+	mat.set_shader_parameter("posterize_mix", 0.32)
+	mat.set_shader_parameter("outline_strength", 0.22)
+	mat.set_shader_parameter("outline_threshold", 0.035)
+	mat.set_shader_parameter("haze_range", 50000.0)
+	mat.set_shader_parameter("haze_strength", 0.22)
+	mat.set_shader_parameter("haze_color", Color(0.66, 0.78, 0.92))
+	quad.material_override = mat
+	# 这张 quad 的 AABB 只有 2×2 且贴在相机脸上，一转头就会被视锥剔除，
+	# 表现为滤镜「时有时无」。给一个极大的剔除余量把它钉死。
+	quad.extra_cull_margin = 16384.0
+	quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_camera.add_child(quad)
+	quad.position = Vector3(0.0, 0.0, -1.0)
 
 
 func _build_hud() -> void:
@@ -331,6 +479,8 @@ func _process(delta: float) -> void:
 	var mem_mb := float(OS.get_static_memory_usage()) / 1048576.0
 	_peak_mem_mb = maxf(_peak_mem_mb, mem_mb)
 
+	if _walk:
+		_walk_tick()
 	_drive_tileset()
 
 	# 判定瓦片是否真的进了画面：以渲染出来的三角面为准。HUD 文字自身约 500 面，
@@ -372,7 +522,9 @@ func _process(delta: float) -> void:
 func _hud_text(fps: float, mem_mb: float) -> String:
 	var site: Dictionary = SITES[_site_key]
 	var lines := PackedStringArray()
-	lines.append("S0 · %s  %.4f°N %.4f°E" % [site["name"], site["lat"], site["lon"]])
+	lines.append("S0 · %s  %.4f°N %.4f°E  %s" % [
+		site["name"], _site_lat(), _site_lon(),
+		("步行 · %s" % ("已落地" if _walk_landed else "下降中")) if _walk else "空中"])
 	lines.append("fps %.0f   avg %.1f   1%%low %.1f" % [fps, _avg_fps(), _low_fps()])
 	lines.append("静态内存 %.0f MB (峰值 %.0f)" % [mem_mb, _peak_mem_mb])
 	lines.append("draw call %d   三角面 %d" % [
@@ -409,7 +561,9 @@ func _low_fps() -> float:
 
 func _maybe_capture() -> void:
 	# 在固定时刻各截一张：早期(瓦片刚进)、中期、末期(LOD 收敛)，用于观感对比。
-	var marks := [5.0, 15.0, 30.0]
+	# 步行模式的节奏不同：落地在 t=10 前后，之后还要等高 LOD 瓦片换入，
+	# 所以第一张放在落地前作对照，后面几张拉开间隔看细节是否还在长。
+	var marks := [9.0, 20.0, 35.0, 50.0, 64.0] if _walk else [5.0, 15.0, 30.0]
 	if _captured >= marks.size():
 		return
 	if _elapsed < float(marks[_captured]):
@@ -427,3 +581,11 @@ func _report() -> void:
 	print("首批瓦片      : %s" % (("%.2f s" % _first_tile_time) if _first_tile_time >= 0.0 else "未出现"))
 	print("初始加载完成  : %s" % (("%.2f s" % _loading_done_time) if _loading_done_time >= 0.0 else "未完成"))
 	print("瓦片会话数    : 1（一次 root.json 请求 = 1 次计费事件，至少可用 3 小时）")
+	if _walk and _walk_landed:
+		print("--- 步行贴地 ---")
+		print("首次命中深度  : %.2f m（地面在原点下方）" % _walk_first_depth)
+		print("最终深度      : %.2f m" % _walk_last_depth)
+		print("深度漂移区间  : %.2f ~ %.2f m，跨度 %.2f m" % [
+			_walk_depth_min, _walk_depth_max, _walk_depth_max - _walk_depth_min])
+		print("　　（同一水平位置的地面高度随 LOD 换入的变化幅度；")
+		print("　　  S1 的角色控制器必须每帧重新贴地，一次性落位会悬空或埋入）")
