@@ -1,0 +1,70 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://client/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://client/world/freecam.gd" id="2_freecam"]
+
+[sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
+sky_top_color = Color(0.247, 0.498, 0.769, 1)
+sky_horizon_color = Color(0.749, 0.824, 0.812, 1)
+sky_curve = 0.18
+ground_bottom_color = Color(0.404, 0.443, 0.412, 1)
+ground_horizon_color = Color(0.749, 0.824, 0.812, 1)
+sun_angle_max = 12.0
+sun_curve = 0.08
+
+[sub_resource type="Sky" id="Sky_res"]
+sky_material = SubResource("Sky_mat")
+
+[sub_resource type="Environment" id="Env_res"]
+background_mode = 2
+sky = SubResource("Sky_res")
+ambient_light_source = 3
+ambient_light_color = Color(0.812, 0.894, 0.933, 1)
+ambient_light_sky_contribution = 0.55
+ambient_light_energy = 0.50
+tonemap_mode = 0
+fog_enabled = true
+fog_light_color = Color(0.749, 0.824, 0.812, 1)
+fog_density = 0.0
+fog_sky_affect = 0.0
+fog_depth_enabled = true
+fog_depth_begin = 4000.0
+fog_depth_end = 34000.0
+fog_depth_curve = 1.6
+
+[node name="World" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_res")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.35, 0.357, 0, 0.714, 0.7, -0.5, -0.606, 0.618, 0, 0, 0)
+light_color = Color(1, 0.945, 0.855, 1)
+light_energy = 1.55
+shadow_enabled = true
+directional_shadow_max_distance = 1500.0
+directional_shadow_split_1 = 0.06
+directional_shadow_split_2 = 0.18
+directional_shadow_split_3 = 0.45
+
+[node name="FreeCam" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2400, 900)
+script = ExtResource("2_freecam")
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Hud" type="RichTextLabel" parent="UI"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 22.0
+offset_top = 18.0
+offset_right = -22.0
+offset_bottom = -18.0
+mouse_filter = 2
+bbcode_enabled = true
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.72)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 2
+theme_override_constants/shadow_outline_size = 3

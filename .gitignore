@@ -1,0 +1,33 @@
+# Godot 4
+.godot/
+/android/
+export_presets.cfg
+*.translation
+
+# 构建产物
+/build/
+/export/
+
+# 派生数据：完全可由 tools/ 重建，不进版本库。
+# assets/terrain 约 80 MB，每次重烘焙都会在 git 里留一份新 blob。
+/tools/.cache/
+/assets/terrain/
+/assets/vector/
+/assets/generated/*.png
+!/assets/generated/.gitkeep
+
+# 凭证：Google Map Tiles API key。只在本机存在，永不进版本库。
+google_maps_key.txt
+
+# 系统
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 原始交付包（已解包到 docs/reference/）
+天山牧歌游戏原型.zip

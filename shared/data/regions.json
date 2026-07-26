@@ -1,0 +1,152 @@
+{
+  "_doc": "地标与牧道的唯一真相源。GDScript (shared/data/regions.gd) 与 Node 烘焙工具 (tools/fetch_dem.mjs) 都读这一份，不得在任一侧手抄副本。",
+
+  "_survey": [
+    "所有 lon/lat 不是估算，也不是从地名中心直接取的：先用 Nominatim/OSM 定位大致范围，",
+    "再用 tools/probe.mjs --site 在真实 DEM 上按「高程接近目标 + 6 km 半径内起伏最小」自动选点。",
+    "牧场要的是山间草甸而不是悬崖面，起伏必须量化，不能靠肉眼在等高线上挑。",
+    "altitude_m 与 relief_sd_m 是选点时 DEM 的实测值，供 review 复核；运行时仍以 TerrainDB 实时采样为准。"
+  ],
+
+  "_deviation": [
+    "相对技术交接文档 §03 增加了 altay_spring / altay_summer / ili_winter 三个牧场。",
+    "理由见 docs/plans/v001-godot-rewrite.md 第四节：原文档把阿勒泰冬窝子与那拉提夏牧场放进",
+    "同一条转场循环，但两地相距约 700 km 且分属阿勒泰地区与伊犁州，不是同一个牧民的路线。",
+    "真实的哈萨克转场是垂直迁徙，必须有中山带与高山带的中继牧场，否则「爬升」根本不存在。",
+    "实测证明了这一点：原先选的中山带点位只有 548 m，还在准噶尔盆地底上，春季转场爬升仅 63 m。",
+    "重新选点后阿勒泰系统的四季爬升为 498 → 1307 → 1995 → 1397 → 498 m，是真实的垂直迁徙。"
+  ],
+
+  "base_capacity_units": 90.0,
+
+  "regions": [
+    {
+      "key": "altay_winter",
+      "name": "阿勒泰冬窝子",
+      "lon": 87.5819, "lat": 46.3425,
+      "altitude_m": 498, "relief_sd_m": 30,
+      "carrying_capacity": 0.6,
+      "resource_mul": { "wood": 0.3, "water": 0.4, "forage": 0.5 },
+      "seasons": ["winter"],
+      "note": "准噶尔盆地北缘，背风山坳与沙漠边缘，积雪覆盖，草料仓与畜棚。暴风雪与狼群事件的默认舞台。可见度受雪幕限制。"
+    },
+    {
+      "key": "altay_spring",
+      "name": "中山带春秋牧场",
+      "lon": 87.5112, "lat": 48.0886,
+      "altitude_m": 1307, "relief_sd_m": 58,
+      "carrying_capacity": 1.1,
+      "resource_mul": { "wood": 0.7, "water": 1.0, "forage": 1.0 },
+      "seasons": ["spring", "autumn"],
+      "note": "阿尔泰山南坡中山带的缓坡河谷，6 km 半径内起伏标准差仅 58 m —— 真正能放牧的地形。接羔后第一段上山在此停留。"
+    },
+    {
+      "key": "altay_summer",
+      "name": "阿尔泰高山夏牧场",
+      "lon": 87.0739, "lat": 48.4039,
+      "altitude_m": 1995, "relief_sd_m": 155,
+      "carrying_capacity": 1.6,
+      "resource_mul": { "wood": 0.5, "water": 1.5, "forage": 1.7 },
+      "seasons": ["summer"],
+      "note": "阿尔泰山高山草甸，6 月上山。地形比中山带陡得多（起伏 σ=155 m），赶群难度是真实存在的。那达慕在此开办。"
+    },
+    {
+      "key": "kanas",
+      "name": "喀纳斯",
+      "lon": 86.9114, "lat": 48.8791,
+      "altitude_m": 1397, "relief_sd_m": 152,
+      "carrying_capacity": 1.2,
+      "resource_mul": { "wood": 2.0, "water": 1.6, "forage": 1.3 },
+      "seasons": ["autumn"],
+      "note": "冰川湖谷，泰加林南缘，白桦与落叶松，图瓦木屋。木料产出 2×。秋色是全游戏最强的视觉时刻。秋季下山后在此打草备木。"
+    },
+    {
+      "key": "ili_winter",
+      "name": "伊犁河谷冬牧场",
+      "lon": 82.7090, "lat": 43.5117,
+      "altitude_m": 800, "relief_sd_m": 3,
+      "carrying_capacity": 0.9,
+      "resource_mul": { "wood": 0.6, "water": 1.3, "forage": 0.8 },
+      "seasons": ["winter"],
+      "note": "伊犁河谷底，6 km 半径内起伏标准差 3 m —— 名副其实的平地。比阿勒泰暖，伊犁系统的越冬地。"
+    },
+    {
+      "key": "narati",
+      "name": "那拉提草原",
+      "lon": 84.4308, "lat": 43.3060,
+      "altitude_m": 2217, "relief_sd_m": 149,
+      "carrying_capacity": 1.8,
+      "resource_mul": { "wood": 1.0, "water": 1.4, "forage": 1.8 },
+      "seasons": ["summer"],
+      "note": "巩乃斯河谷之上的空中草原，高山河谷草甸，云杉林线，晨雾。那达慕会场、赛马赛道。草深过膝——草地着色器高度参数最大。"
+    },
+    {
+      "key": "turpan",
+      "name": "吐鲁番坎儿井",
+      "lon": 89.1796, "lat": 42.9425,
+      "altitude_m": 31, "relief_sd_m": null,
+      "carrying_capacity": 0.7,
+      "resource_mul": { "wood": 0.2, "water": 0.9, "forage": 0.6 },
+      "seasons": ["spring", "autumn"],
+      "note": "戈壁绿洲。竖井沿线呈直线排列（约 20–30 m 间距），葡萄晾房花墙。灌溉玩法：修渠提升苜蓿产量。丝路商队抵达，非转场目的地。"
+    },
+    {
+      "key": "kashgar",
+      "name": "喀什噶尔巴扎",
+      "lon": 75.9900, "lat": 39.4666,
+      "altitude_m": 1292, "relief_sd_m": null,
+      "carrying_capacity": 0.9,
+      "resource_mul": { "wood": 0.5, "water": 1.0, "forage": 0.7 },
+      "seasons": ["spring", "summer", "autumn", "winter"],
+      "note": "丝路交汇点。玩家挂单撮合的唯一物理场所，牲畜市场周日开市。麦西热甫聚会在此触发。丝路商队抵达，非转场目的地。"
+    }
+  ],
+
+  "routes": [
+    {
+      "key": "altay",
+      "name": "阿勒泰千年牧道",
+      "note": "准噶尔盆地北缘冬窝子 → 中山带春秋牧场 → 阿尔泰山高山夏牧场 → 喀纳斯泰加林 → 回冬窝子。单圈约 580 km，与「千里转场」的实况相符。days 按真实距离除以 30–40 km/日定，不是拍的。",
+      "stages": [
+        { "from": "altay_winter", "to": "altay_spring", "season": "spring", "days": 5 },
+        { "from": "altay_spring", "to": "altay_summer", "season": "summer", "days": 2 },
+        { "from": "altay_summer", "to": "kanas", "season": "autumn", "days": 2 },
+        { "from": "kanas", "to": "altay_winter", "season": "winter", "days": 8 }
+      ]
+    },
+    {
+      "key": "ili",
+      "name": "伊犁河谷牧道",
+      "note": "伊犁河谷冬牧场 → 巩乃斯河谷之上的那拉提空中草原。距离短、爬升 1417 m，是全游戏最陡的一段转场。",
+      "stages": [
+        { "from": "ili_winter", "to": "narati", "season": "spring", "days": 4 },
+        { "from": "narati", "to": "ili_winter", "season": "autumn", "days": 4 }
+      ]
+    }
+  ],
+
+  "caravan_links": [
+    { "from": "ili_winter", "to": "kashgar", "days": 12 },
+    { "from": "narati", "to": "turpan", "days": 9 },
+    { "from": "turpan", "to": "kashgar", "days": 14 },
+    { "from": "altay_winter", "to": "turpan", "days": 10 }
+  ],
+
+  "_fixtures_doc": [
+    "DEM 回归断言。expect_m 一律取公认的实测高程（不是我们自己早先的采样值），",
+    "tol_m 按该点会落在哪一层数据上给：L2 (28 m/px) 容差几十米，L0 (447 m/px) 容差数百米。",
+    "山峰在粗分辨率下必然被平滑掉几百米，这是分辨率的性质，不是数据错误 ——",
+    "所以断言写明 expect_layer，让偏差可解释而不是被容差糊过去。"
+  ],
+  "dem_fixtures": [
+    { "lon": 89.3333, "lat": 42.6667, "expect_m": -154, "tol_m": 10, "expect_layer": "L1", "name": "艾丁湖（中国陆地最低点）" },
+    { "lon": 89.1841, "lat": 42.9476, "expect_m": 35, "tol_m": 15, "expect_layer": "L2", "name": "吐鲁番市" },
+    { "lon": 89.6000, "lat": 42.9000, "expect_m": 559, "tol_m": 30, "expect_layer": "L1", "name": "火焰山" },
+    { "lon": 84.0300, "lat": 43.3200, "expect_m": 1399, "tol_m": 30, "expect_layer": "L2", "name": "那拉提河谷" },
+    { "lon": 87.0200, "lat": 48.7700, "expect_m": 1374, "tol_m": 40, "expect_layer": "L2", "name": "喀纳斯湖面" },
+    { "lon": 88.1300, "lat": 47.8400, "expect_m": 850, "tol_m": 40, "expect_layer": "L1", "name": "阿勒泰市" },
+    { "lon": 75.9900, "lat": 39.4700, "expect_m": 1289, "tol_m": 20, "expect_layer": "L2", "name": "喀什市" },
+    { "lon": 80.1750, "lat": 42.2100, "expect_m": 7010, "tol_m": 250, "expect_layer": "L0", "name": "汗腾格里峰（冰盖顶 7010 / 岩顶 6995）" },
+    { "lon": 76.5133, "lat": 35.8808, "expect_m": 8611, "tol_m": 400, "expect_layer": "L0", "name": "乔戈里峰 K2（世界第二高峰，在塔什库尔干）" }
+  ]
+}

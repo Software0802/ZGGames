@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Noto+Serif+SC:wght@600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:#12160f;font-family:"Noto Sans SC",system-ui,sans-serif;color:#e6e2d6;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#e8c37a;text-decoration:none}a:hover{color:#f7e2b4}
+::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:rgba(217,164,65,.28);border-radius:5px}::-webkit-scrollbar-track{background:#0d1109}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:linear-gradient(180deg,#161b12 0%,#12160f 22%,#12160f 100%)">
+
+  <header style="position:relative;overflow:hidden;padding:clamp(38px,6vw,84px) clamp(20px,6vw,88px) clamp(30px,4vw,56px);border-bottom:1px solid rgba(217,164,65,.2)">
+    <div style="position:absolute;inset:0;background:repeating-linear-gradient(135deg,rgba(217,164,65,.035) 0 2px,transparent 2px 16px)"></div>
+    <div style="position:relative;max-width:1120px;margin:0 auto">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px">
+        <div style="width:40px;height:40px;display:grid;place-items:center;background:linear-gradient(150deg,#b23a3a,#8e2b2b);border:1px solid rgba(240,215,160,.5);border-radius:3px;font-family:'Noto Serif SC',serif;font-weight:900;font-size:17px;color:#f6e3bb">牧</div>
+        <span style="font-size:11px;letter-spacing:.42em;color:#7f8f72;text-indent:.42em">TECHNICAL HANDOFF · v0.1</span>
+      </div>
+      <h1 style="margin:0;font-family:'Noto Serif SC',serif;font-weight:900;font-size:clamp(34px,5.2vw,62px);line-height:1.16;letter-spacing:.03em;color:#f4e7c8;text-wrap:pretty">天山牧歌<span style="color:#8b6f3e"> / </span>多人草原模拟经营</h1>
+      <p style="margin:20px 0 0;max-width:660px;font-size:15px;line-height:2.05;color:#a3ac97;text-wrap:pretty">一份写给实现方的完整交接件。已有一个可运行的 three.js 原型（<a href="天山牧歌.dc.html">天山牧歌.dc.html</a>）验证了渲染管线、角色控制、牧群 AI、季节轮回与八套界面；本文补齐它没有覆盖的部分：权威服务器、数据结构、系统算法与工程拆分。</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:26px">
+        <span style="padding:5px 12px;border:1px solid rgba(217,164,65,.3);border-radius:2px;font-size:11px;letter-spacing:.1em;color:#d6bf90">卡通渲染 3D</span>
+        <span style="padding:5px 12px;border:1px solid rgba(217,164,65,.3);border-radius:2px;font-size:11px;letter-spacing:.1em;color:#d6bf90">第三人称 + 骑乘</span>
+        <span style="padding:5px 12px;border:1px solid rgba(217,164,65,.3);border-radius:2px;font-size:11px;letter-spacing:.1em;color:#d6bf90">权威服务器多人</span>
+        <span style="padding:5px 12px;border:1px solid rgba(217,164,65,.3);border-radius:2px;font-size:11px;letter-spacing:.1em;color:#d6bf90">季节 · 转场 · 代际</span>
+        <span style="padding:5px 12px;border:1px solid rgba(217,164,65,.3);border-radius:2px;font-size:11px;letter-spacing:.1em;color:#d6bf90">新疆地理考据</span>
+      </div>
+    </div>
+  </header>
+
+  <div style="max-width:1120px;margin:0 auto;padding:0 clamp(20px,6vw,88px) 120px">
+
+    <section style="padding:clamp(40px,5vw,72px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">01 — 设计支柱</div>
+      <h2 style="margin:0 0 26px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">四条不可妥协的支柱</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:14px">
+        <div style="padding:20px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:17px;font-weight:700;color:#f0cd84;margin-bottom:10px">季节即压力</div>
+          <div style="font-size:13px;line-height:2;color:#9daa93">时间不是背景板。草场承载力随季节在 0.6×–1.8× 之间摆动，超载持续掉膘。玩家每年必须做出四次真实的迁徙决策。</div>
+        </div>
+        <div style="padding:20px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:17px;font-weight:700;color:#f0cd84;margin-bottom:10px">城市是长出来的</div>
+          <div style="font-size:13px;line-height:2;color:#9daa93">毡房 → 定居点 → 绿洲城镇是一条不可跳过的路径。每一级都对应真实的生产关系变化：游牧、半定居、坎儿井灌溉农业。</div>
+        </div>
+        <div style="padding:20px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:17px;font-weight:700;color:#f0cd84;margin-bottom:10px">多人是生计</div>
+          <div style="font-size:13px;line-height:2;color:#9daa93">合作牧场共享草料与羊圈；巴扎是玩家挂单撮合；暴风雪与狼群是全服进度条。社交不是聊天室，是共同的生产。</div>
+        </div>
+        <div style="padding:20px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:17px;font-weight:700;color:#f0cd84;margin-bottom:10px">考据不做装饰</div>
+          <div style="font-size:13px;line-height:2;color:#9daa93">羊角纹、巴旦木纹、卡拉库尔羔皮帽、坎儿井竖井间距——每个视觉元素都有出处，不允许生成式的「异域风情」拼贴。</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">02 — 玩法循环</div>
+      <h2 style="margin:0 0 26px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">一年四转场的主循环</h2>
+      <div style="display:flex;flex-direction:column;gap:2px;border-left:2px solid rgba(217,164,65,.28);padding-left:22px">
+        <div style="padding:16px 0">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-family:'Noto Serif SC',serif;font-size:18px;font-weight:700;color:#f2e2bd">春 · 接羔与上山</span><span style="font-size:11px;letter-spacing:.14em;color:#7f8f72">3–5 月 · 诺鲁孜节</span></div>
+          <div style="font-size:13px;line-height:2;color:#9daa93;margin-top:8px;max-width:760px">母畜集中产羔（羊群 +12%），存栏暴涨但膘情最低。玩家在冬窝子完成接羔后启程上山，沿固定牧道向那拉提转场。这一段是全年唯一的「队伍行进」玩法：牧群跟随、掉队、渡河。</div>
+        </div>
+        <div style="padding:16px 0;border-top:1px solid rgba(217,164,65,.1)">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-family:'Noto Serif SC',serif;font-size:18px;font-weight:700;color:#f2e2bd">夏 · 那拉提盛草</span><span style="font-size:11px;letter-spacing:.14em;color:#7f8f72">6–8 月 · 那达慕</span></div>
+          <div style="font-size:13px;line-height:2;color:#9daa93;margin-top:8px;max-width:760px">承载力 1.8×，产量峰值。核心操作是挤奶、剪毛、加工（奶疙瘩 / 酸奶 / 花毡）。那达慕在此期间开放赛马、叼羊、摔跤，是全服玩家唯一的高密度聚集时段。也是建造窗口：木料与银两最充裕。</div>
+        </div>
+        <div style="padding:16px 0;border-top:1px solid rgba(217,164,65,.1)">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-family:'Noto Serif SC',serif;font-size:18px;font-weight:700;color:#f2e2bd">秋 · 打草贮膘</span><span style="font-size:11px;letter-spacing:.14em;color:#7f8f72">9–10 月 · 秋季巴扎</span></div>
+          <div style="font-size:13px;line-height:2;color:#9daa93;margin-top:8px;max-width:760px">全年唯一的储备窗口。打草量决定越冬存活率。丝路商队价格峰值，玩家决定卖多少、留多少。出栏（宰杀 / 出售）是一次痛感明确的取舍。</div>
+        </div>
+        <div style="padding:16px 0;border-top:1px solid rgba(217,164,65,.1)">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-family:'Noto Serif SC',serif;font-size:18px;font-weight:700;color:#f2e2bd">冬 · 冬窝子</span><span style="font-size:11px;letter-spacing:.14em;color:#7f8f72">11–2 月 · 全服事件高发</span></div>
+          <div style="font-size:13px;line-height:2;color:#9daa93;margin-top:8px;max-width:760px">承载力 0.6×，持续掉膘。暴风雪与狼群是全服协作事件。合作牧场在此刻价值最大：共享草料仓、轮值守夜。年末结算传承——继承者获得父辈的声望与部分牧群。</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">03 — 世界</div>
+      <h2 style="margin:0 0 12px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">五处真实地标</h2>
+      <p style="margin:0 0 24px;font-size:13px;line-height:2;color:#8d9884;max-width:760px">每处地标是一张独立的地图（约 1.2 km × 1.2 km 可行走范围），共享同一套地形着色器与植被系统，靠环境参数区分。转场在地标之间发生，是显式的加载点。</p>
+      <div style="overflow-x:auto;border:1px solid rgba(217,164,65,.16);border-radius:4px">
+        <table style="width:100%;min-width:720px;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:rgba(217,164,65,.09)">
+              <th style="text-align:left;padding:12px 16px;font-weight:700;color:#e8c37a;letter-spacing:.08em;font-size:12px">地标</th>
+              <th style="text-align:left;padding:12px 16px;font-weight:700;color:#e8c37a;letter-spacing:.08em;font-size:12px">承载</th>
+              <th style="text-align:left;padding:12px 16px;font-weight:700;color:#e8c37a;letter-spacing:.08em;font-size:12px">季节</th>
+              <th style="text-align:left;padding:12px 16px;font-weight:700;color:#e8c37a;letter-spacing:.08em;font-size:12px">环境特征与专属内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#f0e3c6;font-weight:700;white-space:nowrap">那拉提草原</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#8fd0a0;font-weight:700">1.8×</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97">夏</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97;line-height:1.85">高山河谷草甸，云杉林线，晨雾。那达慕会场、赛马赛道。草深过膝——草地着色器高度参数最大。</td></tr>
+            <tr><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#f0e3c6;font-weight:700;white-space:nowrap">阿勒泰冬窝子</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#e08a76;font-weight:700">0.6×</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97">冬</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97;line-height:1.85">背风山坳，积雪覆盖，草料仓与畜棚。暴风雪 / 狼群事件的默认舞台。可见度受雪幕限制。</td></tr>
+            <tr><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#f0e3c6;font-weight:700;white-space:nowrap">喀纳斯</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#e8c37a;font-weight:700">1.2×</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97">秋</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97;line-height:1.85">泰加林南缘，白桦与落叶松，图瓦木屋。木料产出 2×。秋色是全游戏最强的视觉时刻。</td></tr>
+            <tr><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#f0e3c6;font-weight:700;white-space:nowrap">吐鲁番坎儿井</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#e08a76;font-weight:700">0.7×</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97">春 / 秋</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97;line-height:1.85">戈壁绿洲。竖井沿线呈直线排列（约 20–30 m 间距），葡萄晾房花墙。灌溉玩法：修渠提升苜蓿产量。</td></tr>
+            <tr><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#f0e3c6;font-weight:700;white-space:nowrap">喀什噶尔巴扎</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#e8c37a;font-weight:700">0.9×</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97">全年</td><td style="padding:13px 16px;border-top:1px solid rgba(217,164,65,.1);color:#a3ac97;line-height:1.85">丝路交汇点。玩家挂单撮合的唯一物理场所，牲畜市场周日开市。麦西热甫聚会在此触发。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">04 — 数据结构</div>
+      <h2 style="margin:0 0 12px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">核心 Schema</h2>
+      <p style="margin:0 0 24px;font-size:13px;line-height:2;color:#8d9884;max-width:760px">服务器权威。客户端只持有只读副本 + 本地预测的角色变换。所有带 <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#e8c37a">@server</code> 注释的字段客户端不可写。</p>
+      <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+        <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">types/world.ts</div>
+        <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#6f7f63">// ---- 时间与世界 ----</span>
+<span style="color:#c98fb0">type</span> Season = <span style="color:#9fc98f">'spring'</span> | <span style="color:#9fc98f">'summer'</span> | <span style="color:#9fc98f">'autumn'</span> | <span style="color:#9fc98f">'winter'</span>;
+<span style="color:#c98fb0">type</span> RegionId = <span style="color:#9fc98f">'narati'</span> | <span style="color:#9fc98f">'altay_winter'</span> | <span style="color:#9fc98f">'kanas'</span> | <span style="color:#9fc98f">'turpan'</span> | <span style="color:#9fc98f">'kashgar'</span>;
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">WorldClock</span> {
+  tick: <span style="color:#8fb8dd">number</span>;        <span style="color:#6f7f63">// @server 服务器主 tick，20 Hz</span>
+  minuteOfDay: <span style="color:#8fb8dd">number</span>; <span style="color:#6f7f63">// 0–1439，1 现实秒 = 12 游戏分（可加速 ×1/×4/×16）</span>
+  day: <span style="color:#8fb8dd">number</span>;         <span style="color:#6f7f63">// 1–30</span>
+  month: <span style="color:#8fb8dd">number</span>;       <span style="color:#6f7f63">// 1–12，每 3 月一季</span>
+  year: <span style="color:#8fb8dd">number</span>;        <span style="color:#6f7f63">// 代际计数，年末触发传承结算</span>
+  season: Season;
+  weather: <span style="color:#9fc98f">'clear'</span> | <span style="color:#9fc98f">'overcast'</span> | <span style="color:#9fc98f">'rain'</span> | <span style="color:#9fc98f">'snow'</span> | <span style="color:#9fc98f">'blizzard'</span>;
+}
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Region</span> {
+  id: RegionId;
+  displayName: <span style="color:#8fb8dd">string</span>;
+  carryingCapacity: <span style="color:#8fb8dd">number</span>;   <span style="color:#6f7f63">// 0.6 – 1.8，乘在基准草场容量上</span>
+  baseCapacityUnits: <span style="color:#8fb8dd">number</span>;  <span style="color:#6f7f63">// 基准 90 羊单位</span>
+  travelDays: Record&lt;RegionId, <span style="color:#8fb8dd">number</span>&gt;;
+  altitudeM: <span style="color:#8fb8dd">number</span>;
+  resourceMul: { wood: <span style="color:#8fb8dd">number</span>; water: <span style="color:#8fb8dd">number</span>; forage: <span style="color:#8fb8dd">number</span> };
+  env: EnvProfile;                <span style="color:#6f7f63">// 渲染参数，见 §07</span>
+}
+
+<span style="color:#6f7f63">// ---- 玩家与角色 ----</span>
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Player</span> {
+  id: <span style="color:#8fb8dd">string</span>;
+  clanName: <span style="color:#8fb8dd">string</span>;          <span style="color:#6f7f63">// 阿吾勒（营地）名，跨代继承</span>
+  generation: <span style="color:#8fb8dd">number</span>;
+  prestige: <span style="color:#8fb8dd">number</span>;         <span style="color:#6f7f63">// @server 声望，阿肯弹唱 / 那达慕获得</span>
+  appearance: Appearance;
+  transform: Transform;         <span style="color:#6f7f63">// 客户端预测 + 服务器校正</span>
+  mountId: <span style="color:#8fb8dd">string</span> | <span style="color:#c98fb0">null</span>;
+  settlementId: <span style="color:#8fb8dd">string</span>;
+  coopId: <span style="color:#8fb8dd">string</span> | <span style="color:#c98fb0">null</span>;   <span style="color:#6f7f63">// 合作牧场</span>
+}
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Appearance</span> {   <span style="color:#6f7f63">// 全部为枚举索引，网络上仅 8 字节</span>
+  sex: <span style="color:#8fb8dd">0</span> | <span style="color:#8fb8dd">1</span>;
+  skin: <span style="color:#8fb8dd">number</span>;            <span style="color:#6f7f63">// 0–2</span>
+  hair: <span style="color:#8fb8dd">number</span>;            <span style="color:#6f7f63">// 0 双辫 1 单辫 2 短发 3 包头巾</span>
+  hat: <span style="color:#8fb8dd">number</span>;             <span style="color:#6f7f63">// 0 塔合亚绣花帽 1 卡拉库尔羔皮帽 2 白毡帽 3 沙吾克烈鹰羽冠 4 头巾</span>
+  robe: <span style="color:#8fb8dd">number</span>;            <span style="color:#6f7f63">// 袷袢 chapan 底色 0–4</span>
+  motif: <span style="color:#8fb8dd">number</span>;           <span style="color:#6f7f63">// 0 羊角纹 1 云纹 2 石榴纹 3 水波纹 4 巴旦木纹</span>
+  belt: <span style="color:#8fb8dd">number</span>; boot: <span style="color:#8fb8dd">number</span>;
+}
+
+<span style="color:#6f7f63">// ---- 牧群 ----</span>
+<span style="color:#c98fb0">type</span> Species = <span style="color:#9fc98f">'sheep'</span> | <span style="color:#9fc98f">'cattle'</span> | <span style="color:#9fc98f">'horse'</span> | <span style="color:#9fc98f">'camel'</span>;
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Herd</span> {
+  id: <span style="color:#8fb8dd">string</span>;
+  ownerId: <span style="color:#8fb8dd">string</span>;
+  species: Species;
+  breed: <span style="color:#8fb8dd">string</span>;            <span style="color:#6f7f63">// '阿勒泰大尾羊' | '新疆褐牛' | '伊犁马' …</span>
+  count: <span style="color:#8fb8dd">number</span>;
+  condition: <span style="color:#8fb8dd">number</span>;       <span style="color:#6f7f63">// @server 膘情 0–100，驱动产量与存活</span>
+  pregnantRatio: <span style="color:#8fb8dd">number</span>;   <span style="color:#6f7f63">// 0–1，春季结算为新生个体</span>
+  lastMilkedTick: <span style="color:#8fb8dd">number</span>;
+  lastShornDay: <span style="color:#8fb8dd">number</span>;
+  anchor: Vec3;                <span style="color:#6f7f63">// 牧群中心，AI 围绕它游走</span>
+  <span style="color:#6f7f63">// 注意：个体动物不入库。服务器只存聚合量，</span>
+  <span style="color:#6f7f63">// 客户端按 count 程序化生成实例并本地模拟 AI（见 §06）。</span>
+}
+
+<span style="color:#6f7f63">// ---- 建造与聚落 ----</span>
+<span style="color:#c98fb0">type</span> BuildingKind = <span style="color:#9fc98f">'yurt'</span> | <span style="color:#9fc98f">'fold'</span> | <span style="color:#9fc98f">'stall'</span> | <span style="color:#9fc98f">'karez_shaft'</span>
+                   | <span style="color:#9fc98f">'rammed_house'</span> | <span style="color:#9fc98f">'shelterbelt'</span> | <span style="color:#9fc98f">'hay_barn'</span> | <span style="color:#9fc98f">'felt_workshop'</span>;
+<span style="color:#c98fb0">type</span> ZoneKind = <span style="color:#9fc98f">'pasture'</span> | <span style="color:#9fc98f">'living'</span> | <span style="color:#9fc98f">'craft'</span> | <span style="color:#9fc98f">'bazaar'</span>;
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Building</span> {
+  id: <span style="color:#8fb8dd">string</span>; kind: BuildingKind; tier: <span style="color:#8fb8dd">1</span> | <span style="color:#8fb8dd">2</span> | <span style="color:#8fb8dd">3</span>;
+  regionId: RegionId; pos: Vec3; rotY: <span style="color:#8fb8dd">number</span>; zone: ZoneKind;
+  builtAtTick: <span style="color:#8fb8dd">number</span>;
+  effects: { popCap?: <span style="color:#8fb8dd">number</span>; forageBonus?: <span style="color:#8fb8dd">number</span>;
+             wolfRisk?: <span style="color:#8fb8dd">number</span>; unlocks?: <span style="color:#8fb8dd">string</span>[] };
+}
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">Settlement</span> {
+  id: <span style="color:#8fb8dd">string</span>; ownerId: <span style="color:#8fb8dd">string</span>; regionId: RegionId;
+  tier: <span style="color:#9fc98f">'camp'</span> | <span style="color:#9fc98f">'seasonal'</span> | <span style="color:#9fc98f">'town'</span>;
+  population: <span style="color:#8fb8dd">number</span>; popCap: <span style="color:#8fb8dd">number</span>;
+  stock: Record&lt;ResourceId, <span style="color:#8fb8dd">number</span>&gt;;   <span style="color:#6f7f63">// milk wool felt wood forage silver</span>
+  buildings: <span style="color:#8fb8dd">string</span>[];
+  visitors: <span style="color:#8fb8dd">string</span>[];               <span style="color:#6f7f63">// 串门中的玩家</span>
+}
+
+<span style="color:#6f7f63">// ---- 市集 ----</span>
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">MarketOrder</span> {
+  id: <span style="color:#8fb8dd">string</span>; sellerId: <span style="color:#8fb8dd">string</span>;
+  side: <span style="color:#9fc98f">'bid'</span> | <span style="color:#9fc98f">'ask'</span>;
+  resource: ResourceId; qty: <span style="color:#8fb8dd">number</span>; unitPrice: <span style="color:#8fb8dd">number</span>;
+  expiresAtTick: <span style="color:#8fb8dd">number</span>; regionId: RegionId;   <span style="color:#6f7f63">// 挂单绑定巴扎所在地标</span>
+}
+
+<span style="color:#6f7f63">// ---- 全服事件 ----</span>
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">ServerEvent</span> {
+  id: <span style="color:#8fb8dd">string</span>;
+  kind: <span style="color:#9fc98f">'wolf_raid'</span> | <span style="color:#9fc98f">'blizzard'</span> | <span style="color:#9fc98f">'caravan'</span> | <span style="color:#9fc98f">'naadam'</span> | <span style="color:#9fc98f">'nawruz'</span>;
+  regionId: RegionId;
+  startTick: <span style="color:#8fb8dd">number</span>; endTick: <span style="color:#8fb8dd">number</span>;
+  progress: <span style="color:#8fb8dd">number</span>;              <span style="color:#6f7f63">// 0–100，全服贡献累加</span>
+  contributions: Record&lt;<span style="color:#8fb8dd">string</span>, <span style="color:#8fb8dd">number</span>&gt;;  <span style="color:#6f7f63">// playerId → 贡献值，用于奖励分配</span>
+  failurePenalty: { herdConditionDelta: <span style="color:#8fb8dd">number</span>; headLossRatio: <span style="color:#8fb8dd">number</span> };
+}</pre>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">05 — 网络</div>
+      <h2 style="margin:0 0 12px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">权威服务器与同步策略</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:26px">
+        <div style="padding:18px;background:rgba(46,92,138,.1);border:1px solid rgba(46,92,138,.28);border-radius:4px">
+          <div style="font-size:12px;letter-spacing:.14em;color:#8fb8dd;margin-bottom:9px">模拟层 · 20 Hz</div>
+          <div style="font-size:13px;line-height:1.95;color:#a3b3c0">经济、膘情、事件进度、市集撮合。服务器唯一真相源，每 tick 推进。玩家指令走可靠通道，服务器校验后应用。</div>
+        </div>
+        <div style="padding:18px;background:rgba(127,174,99,.09);border:1px solid rgba(127,174,99,.26);border-radius:4px">
+          <div style="font-size:12px;letter-spacing:.14em;color:#9fc98f;margin-bottom:9px">表现层 · 10 Hz 快照</div>
+          <div style="font-size:13px;line-height:1.95;color:#a9b8a0">玩家 / 坐骑变换。客户端本地预测 + 100 ms 插值缓冲。牧群个体<b style="color:#d6e0cc">不同步</b>，只同步 anchor 与 count，个体位置由共享随机种子在各客户端本地演算。</div>
+        </div>
+        <div style="padding:18px;background:rgba(217,164,65,.09);border:1px solid rgba(217,164,65,.26);border-radius:4px">
+          <div style="font-size:12px;letter-spacing:.14em;color:#e8c37a;margin-bottom:9px">兴趣管理 AOI</div>
+          <div style="font-size:13px;line-height:1.95;color:#bfb69e">每地标一个房间，房间内按 120 m 网格分区。玩家只订阅相邻 9 格。单地标目标承载 60 人在线，超出走分线。</div>
+        </div>
+      </div>
+      <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+        <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">protocol.ts — 指令与快照</div>
+        <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#6f7f63">// 客户端 → 服务器（可靠有序）</span>
+<span style="color:#c98fb0">type</span> Cmd =
+  | { t: <span style="color:#9fc98f">'move'</span>; seq: <span style="color:#8fb8dd">number</span>; dir: [<span style="color:#8fb8dd">number</span>, <span style="color:#8fb8dd">number</span>]; run: <span style="color:#8fb8dd">boolean</span>; dtMs: <span style="color:#8fb8dd">number</span> }
+  | { t: <span style="color:#9fc98f">'interact'</span>; targetKind: <span style="color:#8fb8dd">string</span>; targetId: <span style="color:#8fb8dd">string</span> }
+  | { t: <span style="color:#9fc98f">'build'</span>; kind: BuildingKind; pos: Vec3; rotY: <span style="color:#8fb8dd">number</span>; zone: ZoneKind }
+  | { t: <span style="color:#9fc98f">'herdAction'</span>; herdId: <span style="color:#8fb8dd">string</span>; action: <span style="color:#9fc98f">'milk'</span>|<span style="color:#9fc98f">'shear'</span>|<span style="color:#9fc98f">'lamb'</span>|<span style="color:#9fc98f">'feed'</span>|<span style="color:#9fc98f">'train'</span> }
+  | { t: <span style="color:#9fc98f">'migrate'</span>; to: RegionId }
+  | { t: <span style="color:#9fc98f">'order'</span>; side: <span style="color:#9fc98f">'bid'</span>|<span style="color:#9fc98f">'ask'</span>; resource: ResourceId; qty: <span style="color:#8fb8dd">number</span>; unitPrice: <span style="color:#8fb8dd">number</span> }
+  | { t: <span style="color:#9fc98f">'fill'</span>; orderId: <span style="color:#8fb8dd">string</span>; qty: <span style="color:#8fb8dd">number</span> }
+  | { t: <span style="color:#9fc98f">'contribute'</span>; eventId: <span style="color:#8fb8dd">string</span>; amount: <span style="color:#8fb8dd">number</span> }
+  | { t: <span style="color:#9fc98f">'setAppearance'</span>; appearance: Appearance }
+  | { t: <span style="color:#9fc98f">'visit'</span>; targetPlayerId: <span style="color:#8fb8dd">string</span> }
+  | { t: <span style="color:#9fc98f">'chat'</span>; channel: <span style="color:#9fc98f">'region'</span>|<span style="color:#9fc98f">'coop'</span>|<span style="color:#9fc98f">'whisper'</span>; text: <span style="color:#8fb8dd">string</span>; to?: <span style="color:#8fb8dd">string</span> };
+
+<span style="color:#6f7f63">// 服务器 → 客户端</span>
+<span style="color:#c98fb0">type</span> Msg =
+  | { t: <span style="color:#9fc98f">'snapshot'</span>; tick: <span style="color:#8fb8dd">number</span>; actors: ActorState[]; ackSeq: <span style="color:#8fb8dd">number</span> }
+  | { t: <span style="color:#9fc98f">'delta'</span>; tick: <span style="color:#8fb8dd">number</span>; patch: JsonPatch[] }   <span style="color:#6f7f63">// 经济 / 建筑 / 挂单</span>
+  | { t: <span style="color:#9fc98f">'event'</span>; event: ServerEvent }
+  | { t: <span style="color:#9fc98f">'reject'</span>; seq: <span style="color:#8fb8dd">number</span>; reason: <span style="color:#8fb8dd">string</span> };
+
+<span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">ActorState</span> {   <span style="color:#6f7f63">// 24 字节/人，量化传输</span>
+  id: <span style="color:#8fb8dd">string</span>; x: <span style="color:#8fb8dd">number</span>; z: <span style="color:#8fb8dd">number</span>; yaw: <span style="color:#8fb8dd">number</span>;   <span style="color:#6f7f63">// y 由地形高度函数还原，不传</span>
+  speed: <span style="color:#8fb8dd">number</span>; mounted: <span style="color:#8fb8dd">boolean</span>; anim: <span style="color:#8fb8dd">number</span>;
+}</pre>
+      </div>
+      <div style="margin-top:16px;padding:15px 18px;background:rgba(178,58,58,.1);border:1px solid rgba(178,58,58,.28);border-radius:3px;font-size:13px;line-height:2;color:#d0aba2">
+        <b style="color:#efb9a8">反作弊底线：</b>移动做服务器端速度上限与地形可达性校验（骑马 15 m/s，步行 6.6 m/s，容差 15%）；所有资源变更只能由服务器 tick 或已校验指令产生，客户端上报的数量一律不信任；市集撮合完全在服务器完成。
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">06 — 系统算法</div>
+      <h2 style="margin:0 0 26px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">关键系统伪代码</h2>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">A · 草场承载与掉膘（每游戏日结算一次）</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#6f7f63">// 羊单位换算：羊 1，牛 3，马 4，骆驼 5</span>
+<span style="color:#c98fb0">function</span> <span style="color:#e8c37a">dailyHerdTick</span>(settlement, region, clock) {
+  <span style="color:#c98fb0">const</span> units   = sum(herds, h =&gt; h.count * SHEEP_UNIT[h.species]);
+  <span style="color:#c98fb0">const</span> limit   = region.baseCapacityUnits * region.carryingCapacity
+                * (<span style="color:#8fb8dd">1</span> + shelterbeltBonus(settlement));   <span style="color:#6f7f63">// 防风林 +8%/座，上限 +24%</span>
+  <span style="color:#c98fb0">const</span> load    = units / limit;
+
+  <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> h <span style="color:#c98fb0">of</span> herds) {
+    <span style="color:#c98fb0">let</span> delta = <span style="color:#8fb8dd">0</span>;
+    <span style="color:#c98fb0">if</span> (load &gt; <span style="color:#8fb8dd">1</span>)  delta -= (load - <span style="color:#8fb8dd">1</span>) * <span style="color:#8fb8dd">14</span>;              <span style="color:#6f7f63">// 超载惩罚，非线性</span>
+    <span style="color:#c98fb0">else</span>            delta += (<span style="color:#8fb8dd">1</span> - load) * <span style="color:#8fb8dd">6</span>;
+    <span style="color:#c98fb0">if</span> (clock.season === <span style="color:#9fc98f">'winter'</span>) delta -= <span style="color:#8fb8dd">2.5</span>;
+    <span style="color:#c98fb0">if</span> (clock.weather === <span style="color:#9fc98f">'blizzard'</span>) delta -= <span style="color:#8fb8dd">6</span>;
+    delta += consumeForage(settlement, h);              <span style="color:#6f7f63">// 补饲，最多 +12</span>
+    h.condition = clamp(h.condition + delta, <span style="color:#8fb8dd">0</span>, <span style="color:#8fb8dd">100</span>);
+
+    <span style="color:#6f7f63">// 膘情跌破 25 开始死亡；这是玩家必须避免的失败状态</span>
+    <span style="color:#c98fb0">if</span> (h.condition &lt; <span style="color:#8fb8dd">25</span>) {
+      <span style="color:#c98fb0">const</span> lossRatio = (<span style="color:#8fb8dd">25</span> - h.condition) / <span style="color:#8fb8dd">100</span>;    <span style="color:#6f7f63">// 最坏 25%/日</span>
+      <span style="color:#c98fb0">const</span> dead = Math.floor(h.count * lossRatio);
+      h.count -= dead;
+      <span style="color:#c98fb0">if</span> (dead &gt; <span style="color:#8fb8dd">0</span>) notify(owner, <span style="color:#9fc98f">`冻饿损失 ${dead} 头`</span>);
+    }
+    <span style="color:#6f7f63">// 产出与膘情挂钩，低膘不产奶</span>
+    <span style="color:#c98fb0">const</span> yieldMul = smoothstep(<span style="color:#8fb8dd">30</span>, <span style="color:#8fb8dd">80</span>, h.condition);
+    settlement.stock.milk += h.count * MILK_PER_HEAD[h.species] * yieldMul;
+    <span style="color:#c98fb0">if</span> (clock.season === <span style="color:#9fc98f">'spring'</span> || clock.season === <span style="color:#9fc98f">'summer'</span>)
+      settlement.stock.wool += h.count * WOOL_PER_HEAD[h.species] * yieldMul;
+  }
+  settlement.stock.forage -= units * FORAGE_PER_UNIT[clock.season];
+}</pre>
+        </div>
+
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">B · 转场迁徙（显式的多日行程，不是瞬移）</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#c98fb0">function</span> <span style="color:#e8c37a">beginMigration</span>(player, to: RegionId) {
+  <span style="color:#c98fb0">const</span> days   = REGIONS[player.regionId].travelDays[to];
+  <span style="color:#c98fb0">const</span> units  = herdUnits(player);
+  <span style="color:#c98fb0">const</span> forage = units * FORAGE_PER_UNIT.travel * days;
+
+  <span style="color:#c98fb0">if</span> (settlement.stock.forage &lt; forage) <span style="color:#c98fb0">return</span> reject(<span style="color:#9fc98f">'草料不足以支撑行程'</span>);
+  <span style="color:#c98fb0">if</span> (activeEvent(<span style="color:#9fc98f">'blizzard'</span>))       <span style="color:#c98fb0">return</span> reject(<span style="color:#9fc98f">'暴风雪封路'</span>);
+
+  settlement.stock.forage -= forage;
+  player.migration = { to, startDay: clock.day, days, progress: <span style="color:#8fb8dd">0</span> };
+  <span style="color:#6f7f63">// 行进期间玩家进入「牧道」场景：牧群跟随、渡河、夜间扎营</span>
+  <span style="color:#6f7f63">// 每日结算一次风险事件</span>
+}
+
+<span style="color:#c98fb0">function</span> <span style="color:#e8c37a">migrationDayTick</span>(player) {
+  <span style="color:#c98fb0">const</span> m = player.migration;
+  m.progress++;
+  <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> h <span style="color:#c98fb0">of</span> herds) h.condition -= <span style="color:#8fb8dd">3</span>;              <span style="color:#6f7f63">// 赶路必然掉膘</span>
+
+  <span style="color:#c98fb0">const</span> risk = <span style="color:#8fb8dd">0.12</span> + (herdUnits(player) / <span style="color:#8fb8dd">400</span>);        <span style="color:#6f7f63">// 群越大越难管</span>
+  <span style="color:#c98fb0">if</span> (rng() &lt; risk) rollTravelIncident(player);       <span style="color:#6f7f63">// 掉队 / 渡河损失 / 遇狼</span>
+
+  <span style="color:#c98fb0">if</span> (m.progress &gt;= m.days) {
+    player.regionId = m.to; player.migration = <span style="color:#c98fb0">null</span>;
+    loadRegion(m.to);                                 <span style="color:#6f7f63">// 客户端换场景</span>
+    grantPrestige(player, <span style="color:#8fb8dd">5</span>);                        <span style="color:#6f7f63">// 完成转场给声望</span>
+  }
+}</pre>
+        </div>
+
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">C · 牧群个体 AI（纯客户端，确定性种子）</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#6f7f63">// 服务器只知道 herd.anchor 与 herd.count。个体位置在每个客户端上</span>
+<span style="color:#6f7f63">// 用 hash(herdId, index) 作种子本地演算——所有人看到的画面一致，</span>
+<span style="color:#6f7f63">// 但一头羊的位置不占带宽。原型已验证 90 只羊 = 2 个 draw call。</span>
+
+<span style="color:#c98fb0">function</span> <span style="color:#e8c37a">updateAnimal</span>(a, herd, dt, threats) {
+  a.restTimer -= dt;
+  <span style="color:#c98fb0">if</span> (a.restTimer &lt;= <span style="color:#8fb8dd">0</span>) {                       <span style="color:#6f7f63">// 重新决策：吃草 or 走动</span>
+    a.restTimer = <span style="color:#8fb8dd">2</span> + rand(a.seed) * <span style="color:#8fb8dd">5</span>;
+    a.grazing   = rand(a.seed) &gt; <span style="color:#8fb8dd">0.42</span>;
+    a.target    = herd.anchor + randInDisc(a.seed, herd.radius);
+  }
+  <span style="color:#6f7f63">// 三条弱规则就够：回中、避让、逃离</span>
+  <span style="color:#c98fb0">let</span> steer = (a.target - a.pos).normalized() * COHESION;
+  <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> n <span style="color:#c98fb0">of</span> neighborsWithin(a, <span style="color:#8fb8dd">1.2</span>)) steer -= (n.pos - a.pos) * SEPARATION;
+  <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> t <span style="color:#c98fb0">of</span> threats)                       <span style="color:#6f7f63">// 狼、疾驰的马、玩家</span>
+    <span style="color:#c98fb0">if</span> (dist(a.pos, t.pos) &lt; t.fearRadius)
+      steer += (a.pos - t.pos).normalized() * FLEE, a.grazing = <span style="color:#c98fb0">false</span>;
+
+  <span style="color:#c98fb0">const</span> speed = a.grazing ? <span style="color:#8fb8dd">0</span> : a.baseSpeed;
+  a.pos  += steer.normalized() * speed * dt;
+  a.pos.y = terrainHeight(a.pos.x, a.pos.z);
+  a.yaw   = lerpAngle(a.yaw, atan2(steer.x, steer.z), dt * <span style="color:#8fb8dd">3.2</span>);
+  a.pitch = a.grazing ? <span style="color:#8fb8dd">0.16</span> : <span style="color:#8fb8dd">0</span>;                <span style="color:#6f7f63">// 低头吃草</span>
+  writeInstanceMatrix(herd.mesh, a.index, a);      <span style="color:#6f7f63">// 一次 GPU 上传</span>
+}</pre>
+        </div>
+
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">D · 巴扎撮合 + 丝路商队价格波动</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#6f7f63">// 玩家挂单为主，NPC 商队做流动性兜底，避免开服冷启动无人交易</span>
+<span style="color:#c98fb0">function</span> <span style="color:#e8c37a">matchOrders</span>(book, resource) {
+  <span style="color:#c98fb0">const</span> bids = book.bids[resource].sortDesc(o =&gt; o.unitPrice);
+  <span style="color:#c98fb0">const</span> asks = book.asks[resource].sortAsc(o =&gt; o.unitPrice);
+  <span style="color:#c98fb0">while</span> (bids.length &amp;&amp; asks.length &amp;&amp; bids[<span style="color:#8fb8dd">0</span>].unitPrice &gt;= asks[<span style="color:#8fb8dd">0</span>].unitPrice) {
+    <span style="color:#c98fb0">const</span> qty   = min(bids[<span style="color:#8fb8dd">0</span>].qty, asks[<span style="color:#8fb8dd">0</span>].qty);
+    <span style="color:#c98fb0">const</span> price = (bids[<span style="color:#8fb8dd">0</span>].unitPrice + asks[<span style="color:#8fb8dd">0</span>].unitPrice) / <span style="color:#8fb8dd">2</span>;   <span style="color:#6f7f63">// 中间价成交</span>
+    transfer(asks[<span style="color:#8fb8dd">0</span>].sellerId, bids[<span style="color:#8fb8dd">0</span>].sellerId, resource, qty, price);
+    book.lastPrice[resource] = price;                 <span style="color:#6f7f63">// 驱动 UI 行情图</span>
+    decrementOrClose(bids[<span style="color:#8fb8dd">0</span>], asks[<span style="color:#8fb8dd">0</span>], qty);
+  }
+}
+
+<span style="color:#c98fb0">function</span> <span style="color:#e8c37a">caravanTick</span>(clock, book) {
+  <span style="color:#c98fb0">if</span> (clock.day % <span style="color:#8fb8dd">3</span> !== <span style="color:#8fb8dd">0</span>) <span style="color:#c98fb0">return</span>;
+  <span style="color:#c98fb0">const</span> demand = SEASONAL_DEMAND[clock.season];          <span style="color:#6f7f63">// 秋季羊毛 ×1.18</span>
+  <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> r <span style="color:#c98fb0">of</span> RESOURCES) {
+    <span style="color:#c98fb0">const</span> ref = REFERENCE_PRICE[r] * demand[r];
+    <span style="color:#6f7f63">// 商队按参考价挂大额单，把玩家价格拉回锚点</span>
+    book.addNpcOrder(<span style="color:#9fc98f">'bid'</span>, r, qty: <span style="color:#8fb8dd">200</span>, price: ref * <span style="color:#8fb8dd">0.92</span>);
+    book.addNpcOrder(<span style="color:#9fc98f">'ask'</span>, r, qty: <span style="color:#8fb8dd">200</span>, price: ref * <span style="color:#8fb8dd">1.08</span>);
+  }
+  broadcast(<span style="color:#9fc98f">'丝路商队抵达巴扎'</span>);
+}</pre>
+        </div>
+
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">E · 全服协作事件（狼群 / 暴风雪）</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#c98fb0">function</span> <span style="color:#e8c37a">spawnWolfRaid</span>(region, clock) {
+  <span style="color:#c98fb0">const</span> onlinePlayers = region.players.length;
+  <span style="color:#c98fb0">const</span> target = <span style="color:#8fb8dd">100</span>;
+  <span style="color:#c98fb0">const</span> wolves = clamp(<span style="color:#8fb8dd">4</span> + onlinePlayers * <span style="color:#8fb8dd">1.5</span>, <span style="color:#8fb8dd">6</span>, <span style="color:#8fb8dd">40</span>);   <span style="color:#6f7f63">// 按在线人数缩放</span>
+  <span style="color:#c98fb0">const</span> ev = createEvent({ kind: <span style="color:#9fc98f">'wolf_raid'</span>, region,
+                           endTick: clock.tick + MIN_10, progress: <span style="color:#8fb8dd">0</span> });
+  spawnWolves(wolves, near: weakestFold(region));      <span style="color:#6f7f63">// 优先咬没有羊圈的玩家</span>
+
+  <span style="color:#6f7f63">// 贡献来源：驱赶（近战 E）、骑马拦截、点燃篝火、羊圈自动防御</span>
+  onContribute((playerId, amount) =&gt; {
+    ev.progress += amount * <span style="color:#8fb8dd">100</span> / target;
+    ev.contributions[playerId] = (ev.contributions[playerId] ?? <span style="color:#8fb8dd">0</span>) + amount;
+    <span style="color:#c98fb0">if</span> (ev.progress &gt;= <span style="color:#8fb8dd">100</span>) resolveSuccess(ev);
+  });
+
+  onExpire(() =&gt; {                                     <span style="color:#6f7f63">// 失败有真实代价</span>
+    <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> p <span style="color:#c98fb0">of</span> region.players) {
+      <span style="color:#c98fb0">const</span> shielded = hasBuilding(p, <span style="color:#9fc98f">'fold'</span>) ? <span style="color:#8fb8dd">0.4</span> : <span style="color:#8fb8dd">1</span>;
+      killHeads(p.herds.sheep, ratio: <span style="color:#8fb8dd">0.06</span> * shielded);
+      p.herds.forEach(h =&gt; h.condition -= <span style="color:#8fb8dd">8</span> * shielded);
+    }
+  });
+
+  <span style="color:#6f7f63">// 奖励按贡献占比分配，保底参与奖，防止只有大佬吃肉</span>
+  <span style="color:#c98fb0">function</span> resolveSuccess(ev) {
+    <span style="color:#c98fb0">const</span> total = sum(values(ev.contributions));
+    <span style="color:#c98fb0">for</span> (<span style="color:#c98fb0">const</span> [pid, c] <span style="color:#c98fb0">of</span> entries(ev.contributions))
+      grant(pid, silver: <span style="color:#8fb8dd">60</span> + <span style="color:#8fb8dd">400</span> * (c / total), prestige: <span style="color:#8fb8dd">2</span>);
+  }
+}</pre>
+        </div>
+
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">F · 代际传承（年末结算）</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#c98fb0">function</span> <span style="color:#e8c37a">yearEnd</span>(player) {
+  <span style="color:#c98fb0">const</span> score = player.prestige
+              + settlement.population * <span style="color:#8fb8dd">2</span>
+              + herdUnits(player) * <span style="color:#8fb8dd">0.5</span>
+              + buildingsOfTier(player, <span style="color:#8fb8dd">3</span>).length * <span style="color:#8fb8dd">20</span>;
+
+  <span style="color:#c98fb0">if</span> (player.generation &gt;= GENERATION_SPAN) {          <span style="color:#6f7f63">// 默认 12 年一代</span>
+    <span style="color:#6f7f63">// 传承不是重开：建筑、聚落、声望全留，牧群按膘情折损，</span>
+    <span style="color:#6f7f63">// 玩家换一个新角色（外观继承父辈纹样），获得一条家族特质。</span>
+    player.generation++;
+    player.appearance = inheritAppearance(player.appearance);
+    player.traits.push(rollTrait(score));             <span style="color:#6f7f63">// 如「识途」转场耗时 -20%</span>
+    herds.forEach(h =&gt; h.count = floor(h.count * <span style="color:#8fb8dd">0.85</span>));
+    unlockChronicleEntry(player, year, score);        <span style="color:#6f7f63">// 家族史，可在毡房内翻阅</span>
+  }
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">07 — 渲染</div>
+      <h2 style="margin:0 0 12px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">卡通渲染管线（原型已验证）</h2>
+      <p style="margin:0 0 24px;font-size:13px;line-height:2;color:#8d9884;max-width:760px">原型中这套管线在 1920×1080 稳定 60 fps，场景含 13000 株草、90 只羊、24 头牛、5 个角色、全部带描边。以下参数可直接搬走。</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:20px">
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.14em;color:#e8c37a;margin-bottom:10px">赛璐璐分层</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">四阶 ramp <code style="font-family:'JetBrains Mono',monospace;color:#c9a961">[0.46, 0.68, 0.86, 1.0]</code> 用于角色与近景，三阶柔和 ramp <code style="font-family:'JetBrains Mono',monospace;color:#c9a961">[0.66, 0.84, 1.0]</code> 用于远山与云——远景用硬阶会在地平线压出一道死黑带，这是踩过的坑。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.14em;color:#e8c37a;margin-bottom:10px">法线外扩描边</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">背面剔除反转 + 顶点沿法线外推固定世界单位（角色 0.010–0.018，动物 0.022–0.028，建筑 0.030）。不用后处理边缘检测：实例化对象可共用一套 shader，且描边粗细不随距离抖动。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.14em;color:#e8c37a;margin-bottom:10px">合批策略</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">每种动物 / 建筑把所有部件合并成一个带顶点色的 BufferGeometry，再用 InstancedMesh 铺开；描边网格直接复用同一个 instanceMatrix。一个 90 只的羊群 = 2 次 draw call。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.14em;color:#e8c37a;margin-bottom:10px">草与风</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">十字双面片 + 顶点渐窄，实例矩阵的平移分量做相位种子，在 <code style="font-family:'JetBrains Mono',monospace;color:#c9a961">begin_vertex</code> 里按高度加权摆动。实例色只做明度扰动，色相全由材质 color 控制——换季一行代码把整片草原染白。</div>
+        </div>
+      </div>
+      <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+        <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">EnvProfile — 季节 × 地标的环境参数表</div>
+        <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#cfd6c4"><span style="color:#c98fb0">interface</span> <span style="color:#e8c37a">EnvProfile</span> {
+  grassColor: Hex; groundColor: Hex; waterColor: Hex;
+  fogColor: Hex; fogNear: <span style="color:#8fb8dd">number</span>; fogFar: <span style="color:#8fb8dd">number</span>;
+  grassDensityMul: <span style="color:#8fb8dd">number</span>;      <span style="color:#6f7f63">// 冬季 0.28</span>
+  snowParticles: <span style="color:#8fb8dd">boolean</span>;
+  treeDensityMul: <span style="color:#8fb8dd">number</span>; karezVisible: <span style="color:#8fb8dd">boolean</span>; mountainsVisible: <span style="color:#8fb8dd">boolean</span>;
+}
+
+<span style="color:#c98fb0">const</span> SEASON_ENV = {
+  spring: { grass: <span style="color:#9fc98f">'#8bbd52'</span>, ground: <span style="color:#9fc98f">'#7aa845'</span>, fog: <span style="color:#9fc98f">'#cfe0d6'</span>, near: <span style="color:#8fb8dd">150</span>, far: <span style="color:#8fb8dd">470</span> },
+  summer: { grass: <span style="color:#9fc98f">'#79ad46'</span>, ground: <span style="color:#9fc98f">'#6f9e3f'</span>, fog: <span style="color:#9fc98f">'#bfd2cf'</span>, near: <span style="color:#8fb8dd">160</span>, far: <span style="color:#8fb8dd">480</span> },
+  autumn: { grass: <span style="color:#9fc98f">'#c2a049'</span>, ground: <span style="color:#9fc98f">'#b08c3e'</span>, fog: <span style="color:#9fc98f">'#dcd0b0'</span>, near: <span style="color:#8fb8dd">140</span>, far: <span style="color:#8fb8dd">440</span> },
+  winter: { grass: <span style="color:#9fc98f">'#d9e2df'</span>, ground: <span style="color:#9fc98f">'#e6ecea'</span>, fog: <span style="color:#9fc98f">'#dfe8ea'</span>, near: <span style="color:#8fb8dd">90</span>,  far: <span style="color:#8fb8dd">340</span> },
+};
+<span style="color:#6f7f63">// 地标覆写：turpan 非冬季 grass→'#b09a52' ground→'#c0a163'（戈壁）</span>
+<span style="color:#6f7f63">//           kanas 秋季     grass→'#c98f3a' ground→'#a8813c'（金色泰加林）</span>
+
+<span style="color:#6f7f63">// 昼夜：太阳角 = ((minuteOfDay/60 - 6) / 24) * 2π</span>
+<span style="color:#6f7f63">// 天空为自定义 shader，注意手动做线性→sRGB 编码，</span>
+<span style="color:#6f7f63">// 否则整片天会暗掉两档（原型踩过）。</span></pre>
+      </div>
+      <div style="margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+        <div style="padding:14px 16px;background:rgba(255,255,255,.026);border:1px solid rgba(217,164,65,.14);border-radius:3px"><div style="font-size:10px;letter-spacing:.14em;color:#7f8f72">目标帧率</div><div style="font-size:19px;font-weight:700;color:#f0e3c6;margin-top:4px">桌面 60 / 移动 30</div></div>
+        <div style="padding:14px 16px;background:rgba(255,255,255,.026);border:1px solid rgba(217,164,65,.14);border-radius:3px"><div style="font-size:10px;letter-spacing:.14em;color:#7f8f72">Draw call 预算</div><div style="font-size:19px;font-weight:700;color:#f0e3c6;margin-top:4px">&lt; 180</div></div>
+        <div style="padding:14px 16px;background:rgba(255,255,255,.026);border:1px solid rgba(217,164,65,.14);border-radius:3px"><div style="font-size:10px;letter-spacing:.14em;color:#7f8f72">同屏三角面</div><div style="font-size:19px;font-weight:700;color:#f0e3c6;margin-top:4px">&lt; 900 k</div></div>
+        <div style="padding:14px 16px;background:rgba(255,255,255,.026);border:1px solid rgba(217,164,65,.14);border-radius:3px"><div style="font-size:10px;letter-spacing:.14em;color:#7f8f72">阴影贴图</div><div style="font-size:19px;font-weight:700;color:#f0e3c6;margin-top:4px">1024–2048 · ±64 m</div></div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">08 — 美术</div>
+      <h2 style="margin:0 0 12px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">色板与纹样考据</h2>
+      <p style="margin:0 0 24px;font-size:13px;line-height:2;color:#8d9884;max-width:760px">全游戏共用这一套色板。禁止引入渐变背景、霓虹色、以及任何非本表内的强调色。</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:26px">
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#b23a3a"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">石榴红</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#B23A3A</div></div></div>
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#2e5c8a"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">天山靛</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#2E5C8A</div></div></div>
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#d9a441"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">錾金</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#D9A441</div></div></div>
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#f2ece0"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">羊毛毡白</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#F2ECE0</div></div></div>
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#7a5230"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">沙枣褐</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#7A5230</div></div></div>
+        <div style="border:1px solid rgba(217,164,65,.16);border-radius:3px;overflow:hidden"><div style="height:54px;background:#3f6b4a"></div><div style="padding:9px 11px"><div style="font-size:12px;font-weight:700;color:#e6e2d6">草原绿</div><div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7f8f72;margin-top:2px">#3F6B4A</div></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:15px;font-weight:700;color:#f0cd84;margin-bottom:9px">羊角纹 qoshqar müyiz</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">哈萨克刺绣与花毡的主纹，双弯钩对称，象征牧群兴旺。用于袷袢镶边、毡房围毡、马鞍鞯。是全游戏出现频率最高的纹样，必须做对。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:15px;font-weight:700;color:#f0cd84;margin-bottom:9px">巴旦木纹 badam</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">维吾尔装饰母题，杏仁形。多见于花帽（doppa）、地毯、木刻。用于喀什巴扎的建筑与商品，与哈萨克纹样区分开——不要混用。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:15px;font-weight:700;color:#f0cd84;margin-bottom:9px">毡房构造</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">柳木哈那（菱格围墙）+ 乌尼（辐条）+ 香纳勒克（天窗圈）。红色门框朝东。围毡下缘压蓝色织带。原型已按此结构建模，可直接细化。</div>
+        </div>
+        <div style="padding:18px;background:rgba(255,255,255,.028);border:1px solid rgba(217,164,65,.16);border-radius:4px">
+          <div style="font-family:'Noto Serif SC',serif;font-size:15px;font-weight:700;color:#f0cd84;margin-bottom:9px">乐器与声音</div>
+          <div style="font-size:12.5px;line-height:1.95;color:#9daa93">冬不拉（哈萨克，两弦）用于阿肯弹唱；都塔尔与手鼓（维吾尔）用于麦西热甫；马头琴不属于新疆哈萨克语境，慎用。环境音以风、羊铃、水渠为主。</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">09 — 工程</div>
+      <h2 style="margin:0 0 26px;font-family:'Noto Serif SC',serif;font-weight:700;font-size:clamp(24px,3vw,34px);color:#f0e3c6;letter-spacing:.04em">目录结构与里程碑</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px">
+        <div style="background:#0c0f09;border:1px solid rgba(217,164,65,.18);border-radius:4px;overflow:hidden">
+          <div style="padding:9px 16px;background:rgba(217,164,65,.08);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;color:#c9a961">建议拆分</div>
+          <pre style="margin:0;padding:20px;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;color:#cfd6c4">client/
+  render/    toonPipeline, outline, grass, sky
+  world/     terrain, regions, envProfile
+  actors/    humanBuilder, horse, herdSim
+  gameplay/  build, market, festival, migration
+  net/       socket, prediction, interpolation
+  ui/        hud, panels/ (8 套)
+server/
+  sim/       clock, economy, herds, events
+  match/     orderBook, caravan
+  rooms/     regionRoom, aoiGrid
+  persist/   pg schema, snapshots
+shared/
+  types/     world.ts, protocol.ts
+  data/      buildings.json, breeds.json,
+             regions.json, festivals.json</pre>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="padding:15px 17px;background:rgba(255,255,255,.028);border-left:2px solid #8fd0a0;border-radius:0 3px 3px 0">
+            <div style="font-size:13px;font-weight:700;color:#f0e3c6">M0 · 已完成（本原型）</div>
+            <div style="font-size:12px;line-height:1.9;color:#9daa93;margin-top:5px">卡通渲染管线、地形与植被、角色与坐骑、牧群 AI、季节切换、八套界面的信息架构与视觉语言。</div>
+          </div>
+          <div style="padding:15px 17px;background:rgba(255,255,255,.028);border-left:2px solid #d9a441;border-radius:0 3px 3px 0">
+            <div style="font-size:13px;font-weight:700;color:#f0e3c6">M1 · 单机纵向切片（4 周）</div>
+            <div style="font-size:12px;line-height:1.9;color:#9daa93;margin-top:5px">完整一年循环跑通：接羔 → 上山 → 挤奶剪毛 → 打草 → 越冬。经济数值可调表化。存档落地。</div>
+          </div>
+          <div style="padding:15px 17px;background:rgba(255,255,255,.028);border-left:2px solid #8fb8dd;border-radius:0 3px 3px 0">
+            <div style="font-size:13px;font-weight:700;color:#f0e3c6">M2 · 联机骨架（4 周）</div>
+            <div style="font-size:12px;line-height:1.9;color:#9daa93;margin-top:5px">权威服务器、AOI、移动同步与预测、聊天、串门。目标：8 人同屏无明显抖动。</div>
+          </div>
+          <div style="padding:15px 17px;background:rgba(255,255,255,.028);border-left:2px solid #e08a76;border-radius:0 3px 3px 0">
+            <div style="font-size:13px;font-weight:700;color:#f0e3c6">M3 · 社会系统（5 周）</div>
+            <div style="font-size:12px;line-height:1.9;color:#9daa93;margin-top:5px">巴扎撮合、合作牧场共享仓、全服事件、那达慕三项竞技、麦西热甫聚会。</div>
+          </div>
+          <div style="padding:15px 17px;background:rgba(255,255,255,.028);border-left:2px solid #c9a8d8;border-radius:0 3px 3px 0">
+            <div style="font-size:13px;font-weight:700;color:#f0e3c6">M4 · 城市与传承（5 周）</div>
+            <div style="font-size:12px;line-height:1.9;color:#9daa93;margin-top:5px">区域规划、定居点升级到城镇、坎儿井灌溉网、代际结算与家族史。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="padding:clamp(46px,5.5vw,80px) 0 0">
+      <div style="font-size:11px;letter-spacing:.34em;color:#7f8f72;margin-bottom:14px">10 — 交接边界</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+        <div style="padding:20px;background:rgba(127,174,99,.09);border:1px solid rgba(127,174,99,.26);border-radius:4px">
+          <div style="font-size:13px;font-weight:700;letter-spacing:.1em;color:#9fc98f;margin-bottom:12px">原型里已经能跑的</div>
+          <div style="font-size:12.5px;line-height:2.1;color:#a9b8a0">卡通渲染 + 描边 · 地形与河流 · 风吹草动 · 天山远景 · 昼夜与四季 · 第三人称控制与骑乘 · 羊牛马群 AI · 挤奶剪毛互动 · 建造放置与幽灵预览 · 八套界面 · 转场换环境 · 全服事件进度 · 竞技小游戏 · 换装实时重建 · 触屏摇杆</div>
+        </div>
+        <div style="padding:20px;background:rgba(178,58,58,.1);border:1px solid rgba(178,58,58,.28);border-radius:4px">
+          <div style="font-size:13px;font-weight:700;letter-spacing:.1em;color:#efb9a8;margin-bottom:12px">原型里是假的、需要你实现的</div>
+          <div style="font-size:12.5px;line-height:2.1;color:#d0aba2">所有「其他玩家」都是本地 NPC · 市集挂单是静态数据 · 全服进度条是定时器 · 没有服务器、没有存档、没有账号 · 转场是就地换色而非多日行程 · 建筑没有实际产出结算 · 没有音频 · 角色是程序化几何体，需要美术替换为正式模型（保留同一套骨骼与外观枚举）</div>
+        </div>
+      </div>
+      <div style="margin-top:22px;padding:18px 20px;background:rgba(217,164,65,.08);border:1px solid rgba(217,164,65,.24);border-radius:4px;font-size:13px;line-height:2.05;color:#cfc0a0">
+        <b style="color:#f0cd84">给实现方的一句话：</b>先把 §06-A（承载与掉膘）跑通并调平，其余系统都是它的外围。这个游戏好不好玩，取决于玩家在「多养一百只羊」和「今年能不能安全过冬」之间是否真的会犹豫。
+      </div>
+    </section>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
