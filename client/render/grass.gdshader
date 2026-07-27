@@ -48,6 +48,19 @@ uniform float wrap_factor = 0.45;
 ///   2 ALBEDO = 真实 ok  —— 直接读出生长条件的值，全黑就是条件把草掐掉了
 ///   3 ALBEDO 按落地高度分带（每 500 m 换色）—— 看草落在哪个海拔
 ///   4 纯品红 —— 只问「几何到底在不在画面上」
+/// 光照链路诊断（ALBEDO 置 1，把 light() 里的中间量原样显示出来，同 terrain.gdshader）：
+///   5 ramp 输出 k    6 N·L（0.5+0.5 编码）  7 FRONT_FACING（白=正面 红=背面）
+/// 【注意 5 与 6 会被环境光顶到饱和】ALBEDO=1 时 ambient 就有大半档，
+/// 诊断值再叠上去往往直接切到 255，两个不同的 k 看起来一样白。
+/// 要比较亮度差就用 8：配色正常，只把 k 强制为 1 且不压根部 ——
+/// 若草仍比地表暗，问题就不在 ramp 与根部压暗上。
+///   8 配色正常 + k≡1 + 不压根部
+///   9 light() 生效探针：草应变成纯红。**不红就说明当前渲染后端根本没在调 light()**，
+///     此时一切关于明暗/配色的观察都不代表 Forward+ 的结果（见 v010 的验证边界）。
+///  10 配色正常 + 完全绕开 LIGHT_COLOR / ATTENUATION（平光 1.0）。
+///     和 8 配对使用就能把「ramp/根部」与「LIGHT_COLOR/ATTENUATION」分开：
+///     8 与正常一样而 10 亮很多 ⇒ 问题在 ATTENUATION（阴影）或 LIGHT_COLOR，不在 ramp。
+///     v010 就是这么定位到「没有投影体的阴影灯把草压暗一个数量级」的。
 uniform int debug_mode = 0;
 
 varying vec3 v_normal;
@@ -91,9 +104,13 @@ void vertex() {
 		ok = 1.0;
 	}
 
-	// 每株的随机相位与高矮，用根部坐标做种子 —— 同一株在任何一帧、任何一台
+	// 每片的随机相位与高矮，用根部坐标做种子 —— 同一片在任何一帧、任何一台
 	// 机器上都算出同样的值，不需要往实例里塞额外数据。
-	vec2 seed = ts_hash2(floor(root.xz * 7.31));
+	//
+	// 【频率必须细于丛内半径】乘 7.31 时格子是 0.137 m，而一丛草的半径是 0.17 m ——
+	// 同一丛里的几片会落进同一格，拿到一样的相位与高矮，整丛齐刷刷同高同步摆，
+	// 成丛反而比均匀撒点更假。乘 53 后格子 0.019 m，丛内每片都不同。
+	vec2 seed = ts_hash2(floor(root.xz * 53.0));
 	float phase = (seed.x + 1.0) * 3.14159;
 	float vary = 0.72 + (seed.y + 1.0) * 0.34;
 
@@ -139,6 +156,12 @@ void fragment() {
 		c = mix(vec3(0.10, 0.10, 0.45), vec3(0.95, 0.85, 0.25), band);
 	} else if (debug_mode == 4) {
 		c = vec3(1.0, 0.0, 1.0);
+	} else if (debug_mode == 7) {
+		// 十字双面片必然有一半三角面背向相机（render_mode 是 cull_disabled）。
+		// 这一档用来确认背面到底有没有被当成背面着色。
+		c = FRONT_FACING ? vec3(1.0) : vec3(1.0, 0.0, 0.0);
+	} else if (debug_mode >= 5 && debug_mode <= 6) {
+		c = vec3(1.0);  // 让 light() 里输出的诊断值原样可见
 	}
 	ALBEDO = c;
 	NORMAL = (VIEW_MATRIX * vec4(v_normal, 0.0)).xyz;
@@ -151,11 +174,23 @@ void light() {
 	float ndl = dot(normalize(NORMAL), normalize(LIGHT));
 	float t = clamp((ndl + wrap_factor) / (1.0 + wrap_factor), 0.0, 1.0);
 	float k = texture(ramp, vec2(t, 0.5)).r;
-	// 根部压暗一档，让草丛底部有厚度感，而不是一片平的绿
-	k *= mix(0.82, 1.0, v_up);
+	// 根部压暗一点，让草丛底部有厚度感，而不是一片平的绿。
+	// 注意 root_color 那边也压了一道，两处相乘 —— 各留一点就够，
+	// 给多了整丛草会比脚下的地表还暗（见 grass.gd 里 root_color 的说明）。
+	k *= mix(0.90, 1.0, v_up);
 	// 【不要在 light() 里写 return】Godot 明令禁止，那不是警告而是编译错误，
 	// 整个着色器会失效并回退默认材质（见 v007）。诊断分支必须写成 if/else。
-	if (debug_mode >= 2) {
+	if (debug_mode == 5) {
+		DIFFUSE_LIGHT += vec3(k);
+	} else if (debug_mode == 6) {
+		DIFFUSE_LIGHT += vec3(ndl * 0.5 + 0.5);
+	} else if (debug_mode == 8) {
+		DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION / PI;
+	} else if (debug_mode == 9) {
+		DIFFUSE_LIGHT += vec3(4.0, 0.0, 0.0);
+	} else if (debug_mode == 10) {
+		DIFFUSE_LIGHT += vec3(1.0);
+	} else if (debug_mode >= 2 && debug_mode <= 4) {
 		// 诊断模式把光照置平，让 ALBEDO 里编码的诊断值原样可见
 		DIFFUSE_LIGHT += vec3(1.0);
 	} else {

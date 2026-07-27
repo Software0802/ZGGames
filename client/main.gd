@@ -103,6 +103,15 @@ func _setup_sun() -> void:
 	# 所以要看向「太阳的反方向」，光才是从太阳照过来。
 	_sun.look_at_from_position(Vector3.ZERO, -to_sun, Vector3.UP)
 
+	# 【阴影先关掉】现在场景里**一个投影体都没有**：地形与草都是
+	# SHADOW_CASTING_SETTING_OFF（地形是因为高度场自投影必出 acne 且超三角面预算，
+	# 见 v003；草是因为几万株草的阴影通道会把预算直接翻倍）。
+	# 开着一盏没有投影体的阴影灯不是「无害的空转」—— 实测草地的 ATTENUATION
+	# 被压到约 0.1，整片草暗了一个数量级，而地形几乎不受影响，
+	# 于是草比它脚下的地表还暗，明暗关系正好反了（见 v010 的定位过程）。
+	# P4 接入毡房、角色、牲畜时再打开 —— 那时才真的有东西需要投影。
+	_sun.shadow_enabled = false
+
 
 ## 取值型参数一律 `--key value`。放在一张表里而不是写一串 elif，
 ## 是为了加参数时不用再碰解析逻辑。
@@ -267,11 +276,15 @@ func _apply_season_for(r: Dictionary) -> void:
 	var set_col := func(name: String, hex: String) -> void:
 		terrain_mat.set_shader_parameter(name, Color(hex).srgb_to_linear())
 
-	# 地表基色用 ground 而不是 grass：SEASON_ENV 里的 grass 是给草地实例（P3）的颜色，
+	# 地表基色用 ground 而不是 grass：SEASON_ENV 里的 grass 是给草地实例的颜色，
 	# 把它铺满整个地表会让喀纳斯的秋色变成一整片火星红。
-	# 地表基色用 ground 且再压暗一档：草地实例会盖在它上面，
-	# 两者同亮度会糊成一片。压暗后草才显得是「长出来的一层」。
-	set_col.call("color_grass", Color(String(env["ground"])).darkened(0.30).to_html(false))
+	#
+	# 【压暗系数从 0.30 降到 0.12】原来压 0.30 是在草**看不见**的时候定的
+	# （见 v009：草被淡出成零面积），当时没有参照物，只能凭「草要比地表亮」的原则给。
+	# 草出来之后这个系数就站不住了：叶片收窄成丛之后地表必然从缝里透出来，
+	# 压暗 30% 的地表会让每一条缝都读成一个黑洞，整片草原像长在深色泥地上。
+	# 0.12 只留下够分辨「草是长出来的一层」的那一点点差，缝隙读起来是草的暗部。
+	set_col.call("color_grass", Color(String(env["ground"])).darkened(0.12).to_html(false))
 	set_col.call("color_dry", "#a89050")
 	set_col.call("color_rock", "#6b675e")
 	set_col.call("color_snow", "#eaf0f2")

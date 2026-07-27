@@ -32,16 +32,66 @@ class Ring:
 ## 按 clipmap 的同一条规矩取「重叠 ≥ 2 倍最大偏移」（见 Clipmap.HOLE_SHRINK_CELLS）：
 ## 需要 78 − hole ≥ 42.3，故 hole ≤ 35.8，取 34 m。
 ## 代价只是 34–78 m 这一带两圈同时长草（密一点，无害），换来脚边不会出现巨叶。
+## 【叶片尺寸的依据】草出来之后第一件事就是它读起来不像草，是一根根锥体。
+## 原因是尺寸：原来近圈单株 0.55 m 高 × 0.24 m 宽，乘上 vary(≤1.40) 与那拉提的
+## height_scale 1.8 之后是 1.39 m × 0.34 m —— 一株「草」比人还高、比手掌还宽。
+##
+## 重新定标，两个锚点：
+##   * 高度：数值表说那拉提「草深过膝」（carrying_capacity 1.8）。过膝是 0.5–0.6 m。
+##     倒推基准高度 0.34 m：0.34 × 1.8 × vary(1.06 典型) ≈ 0.65 m，峰值 0.86 m。
+##     基准值是 height_scale = 1.0（普通草场）时的高度，那时约 0.36 m，及踝到小腿。
+##   * 宽度：交接文档 §07 的原型全场景只有 13000 株草，靠的是宽片凑覆盖率。
+##     但 0.24 m 是「一丛」的宽度而不是一片叶子，近处一眼就露馅。
+##     收到 0.13 m，覆盖率靠加密补回来（见下）。
+##
+## 【成丛，不是均匀撒点】叶片一收窄，均匀网格立刻露出问题：每株都孤零零站着，
+## 读起来是「草坪上的杂草」而不是草原。真实的草是**一丛一丛**长的，
+## 所以撒点分两级：抖动网格定丛心，每丛在 tuft_radius 内再撒几片，各自随机朝向与倾角。
+## 同样的三角面预算下，成丛的覆盖感远好于均匀撒点 —— 因为叶片互相叠着，
+## 远看连成一片，近看仍是一片片独立的叶子。
+##
+## 【三角面预算怎么分】预算 900 k（交接文档 §07），地形约 50 k，草能用 800 k 左右。
+## 近圈段数从 3 降到 2（12 面/株 → 8 面/株）：一个弯折点仍然能被风吹出弧线，
+## 换来株数能翻一倍多。14000 丛 × 4 片 = 56000 片 × 8 面 = 448 k，
+## 加远圈 16000 × 4 = 64 k，草共约 512 k，总计约 56 万，留足余量。
+##
+## 【近圈覆盖范围从 78 m 收到 55 m】覆盖范围是比株数更划算的密度旋钮：
+## 株数不变、三角面一面不多，密度按面积反比涨 2 倍（0.77 → 1.5 丛/m²，
+## 丛心间距 1.14 m → 0.82 m，对上一丛草 0.34 m 的直径才勉强连成片）。
+## 原来 78 m 里绝大多数叶片落在几十米外，那个距离上单片草不到一个像素，
+## 纯属白烧三角面 —— 远处本来就该由远圈和地形基色顶替。
+##
+## 密度是旋钮不是定论：这里只把它推到三角面预算的边上（预算 900 k，现约 76 万），
+## 再往上加得先在真机上测帧。**软件渲染下的 fps 不可信**，只有三角面与 draw call 可信，
+## 所以本次没有继续加密（见 v010）。
+##
+## tufts 丛数 / blades 每丛片数 / tuft_radius 丛内半径(米) / extent 覆盖半径(米)
+## / hole 中间挖空半径(米) / segments 叶片段数 / width 叶宽 / height 叶高
+##
+## 【洞口必须留足重叠】两圈吸附到各自的栅格（近圈 9.75 m，远圈 32.5 m），
+## 中心每轴最多能差 9.75/2 + 32.5/2 ≈ 21.1 m。洞口若正好等于近圈的覆盖范围，
+## 这个偏移就会在某一侧留出一条**光秃的缝**。
+## 按 clipmap 的同一条规矩取「重叠 ≥ 2 倍最大偏移」（见 Clipmap.HOLE_SHRINK_CELLS）。
+## 近圈收到 55 m 后：近圈 snap 6.875 m、远圈 32.5 m，每轴最大偏移
+## 6.875/2 + 32.5/2 ≈ 19.7 m，需要 55 − hole ≥ 39.4，故 hole ≤ 15.6，取 14 m。
+## 代价只是 14–55 m 这一带两圈同时长草（密一点，无害），换来脚边不会出现巨叶。
 const RINGS := [
 	{
-		"count": 21000, "extent": 78.0, "hole": 0.0,
-		"segments": 3, "width": 0.24, "height": 0.55,
+		"tufts": 14000, "blades": 4, "tuft_radius": 0.17,
+		"extent": 55.0, "hole": 0.0,
+		"segments": 2, "width": 0.13, "height": 0.34,
 	},
 	{
-		"count": 12000, "extent": 260.0, "hole": 34.0,
-		"segments": 1, "width": 0.52, "height": 1.05,
+		# 远圈不成丛：4.7 m 株距下丛与丛之间根本挨不上，成丛只是白花三角面。
+		# 单片给宽一点、高一点顶替覆盖率，几十米外读不出单株。
+		"tufts": 16000, "blades": 1, "tuft_radius": 0.0,
+		"extent": 260.0, "hole": 14.0,
+		"segments": 1, "width": 0.30, "height": 0.62,
 	},
 ]
+
+## 丛内叶片的最大倾角。全部竖直会像一排钉子，散开成扇形才像一丛草。
+const TUFT_TILT_MAX := deg_to_rad(16.0)
 
 var material: ShaderMaterial
 var _rings: Array[Ring] = []
@@ -60,9 +110,7 @@ func _ready() -> void:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = mesh
-		_scatter(
-			mm, int(cfg["count"]), float(cfg["extent"]), float(cfg["hole"])
-		)
+		_scatter(mm, cfg)
 
 		var mi := MultiMeshInstance3D.new()
 		mi.multimesh = mm
@@ -118,33 +166,51 @@ func _blade_mesh(segments: int, width: float, height: float) -> ArrayMesh:
 	return mesh
 
 
-## 在方形范围里撒点，可选挖掉中间 hole×hole（半径，米）的方形。
-## 用抖动网格而不是纯随机：纯随机会出现明显的空洞与结块，抖动网格既均匀又不规则。
+## 撒点。丛心用抖动网格（纯随机会出现明显的空洞与结块，抖动网格既均匀又不规则），
+## 每个丛心周围再撒 blades 片。可选挖掉中间 hole×hole（半径，米）的方形。
 ## 实例的 y 一律为 0，真实高度由着色器加。
 ##
-## 撒点先收进数组再一次性写进 MultiMesh：挖洞后实际株数少于 count，
+## 先收进数组再一次性写进 MultiMesh：挖洞后实际片数少于 tufts×blades，
 ## 而 instance_count 必须在 set_instance_transform 之前定下来。
-func _scatter(mm: MultiMesh, count: int, extent: float, hole: float) -> void:
-	var side := int(ceil(sqrt(float(count))))
+func _scatter(mm: MultiMesh, cfg: Dictionary) -> void:
+	var tufts := int(cfg["tufts"])
+	var blades := int(cfg["blades"])
+	var radius := float(cfg["tuft_radius"])
+	var extent := float(cfg["extent"])
+	var hole := float(cfg["hole"])
+
+	var side := int(ceil(sqrt(float(tufts))))
 	var step := extent * 2.0 / float(side)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 0x8ACE  # 固定种子：每次启动的草分布一致，便于比对截图
 	var placed: Array[Transform3D] = []
+	var n := 0
 	for gz in side:
 		for gx in side:
-			if placed.size() >= count:
+			if n >= tufts:
 				break
-			var x := -extent + (float(gx) + rng.randf()) * step
-			var z := -extent + (float(gz) + rng.randf()) * step
-			var yaw := rng.randf() * TAU
+			n += 1
+			var cx := -extent + (float(gx) + rng.randf()) * step
+			var cz := -extent + (float(gz) + rng.randf()) * step
 			# 洞里不撒。判据用**方形**（切比雪夫距离）而不是圆：
 			# 近圈的覆盖范围本身就是方形，用圆会在四个角上留下秃缝。
-			if hole > 0.0 and maxf(absf(x), absf(z)) < hole:
-				continue
-			var t := Transform3D()
-			t.basis = Basis(Vector3.UP, yaw)
-			t.origin = Vector3(x, 0.0, z)
-			placed.append(t)
+			var skip := hole > 0.0 and maxf(absf(cx), absf(cz)) < hole
+			for b in blades:
+				# 随机数无论跳不跳都要抽掉，否则挖洞会改变后面所有丛的分布，
+				# 固定种子就失去「换个参数还能比对截图」的意义。
+				var ang := rng.randf() * TAU
+				var r := radius * sqrt(rng.randf())  # sqrt 让丛内均匀而不是挤在中心
+				var yaw := rng.randf() * TAU
+				var tilt := rng.randf() * TUFT_TILT_MAX
+				var tilt_dir := rng.randf() * TAU
+				if skip:
+					continue
+				var t := Transform3D()
+				# 先绕自身竖轴转（决定叶片朝哪面），再倾倒（决定这一丛的扇形）
+				t.basis = Basis(Vector3(cos(tilt_dir), 0.0, sin(tilt_dir)), tilt) \
+					* Basis(Vector3.UP, yaw)
+				t.origin = Vector3(cx + cos(ang) * r, 0.0, cz + sin(ang) * r)
+				placed.append(t)
 
 	mm.instance_count = placed.size()
 	for i in placed.size():
@@ -181,8 +247,12 @@ func apply_env(env: Dictionary, region: Dictionary) -> void:
 	material.set_shader_parameter(
 		"tip_color", Color(hex).lightened(0.42).srgb_to_linear()
 	)
+	# 【根部只压一点点】原来压 0.28，加上 light() 里还有一道 k *= mix(0.82, 1.0, v_up)，
+	# 根部被**压了两次**（0.72 × 0.82 ≈ 0.59）。叶片收窄成丛之后可见面积大半是中下段，
+	# 于是整丛草读起来比它脚下的地表还暗 —— 草原变成「亮草坪上一丛丛深色杂草」，
+	# 明暗关系正好反了。两道压暗各留一点就够，这里降到 0.12。
 	material.set_shader_parameter(
-		"root_color", Color(hex).darkened(0.28).srgb_to_linear()
+		"root_color", Color(hex).darkened(0.12).srgb_to_linear()
 	)
 
 	# 草的高矮直接反映草场质量：那拉提承载 1.8×，草深过膝；
