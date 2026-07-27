@@ -42,18 +42,39 @@ uniform float fade_band = 60.0;
 uniform sampler2D ramp : filter_nearest, repeat_disable;
 uniform float wrap_factor = 0.45;
 
+/// 诊断模式。0 正常。诊断模式一律**强制 ok = 1**（无条件长草）并把光照置平，
+/// 这样「画面上有没有草」与「草为什么不长」是两个能分开问的问题。
+///   1 无条件长草（正常配色）—— 区分「条件把草掐掉了」和「几何/落地有问题」
+///   2 ALBEDO = 真实 ok  —— 直接读出生长条件的值，全黑就是条件把草掐掉了
+///   3 ALBEDO 按落地高度分带（每 500 m 换色）—— 看草落在哪个海拔
+///   4 纯品红 —— 只问「几何到底在不在画面上」
+uniform int debug_mode = 0;
+
 varying vec3 v_normal;
 varying float v_up;      ///< 顶点在草叶上的相对高度 0..1
 varying float v_shade;   ///< 每株的明度扰动
+varying float v_ok;      ///< 诊断用：真实的生长条件系数
+varying float v_gh;      ///< 诊断用：这株草的落地高度（米）
 
 
 void vertex() {
 	// MultiMesh 的实例变换已经乘进 MODEL_MATRIX，第四列就是这株草的根部世界坐标。
 	vec3 root = MODEL_MATRIX[3].xyz;
-	float dist = length(root - CAMERA_POSITION_WORLD);
 
-	float gh = ts_surface_height(root.xz, dist);
+	// 【必须是水平距离】不能写 length(root - CAMERA_POSITION_WORLD)：
+	// root.y 恒为 0（真实高度是下面才加上去的），而相机的 y 是海拔。
+	// 那样算出来的 dist 在那拉提恒 ≥ 2231 m，远超 fade_dist=220，
+	// 每一株草都被淡出成零面积 —— 全疆一株草都不显示。详见 ts_plan_dist 的说明。
+	float plan_dist = ts_plan_dist(root.xz, CAMERA_POSITION_WORLD);
+
+	// plan_dist 必须原样传给 ts_surface_height：地形传的是同一个值，
+	// 两边算出的高度才会完全一致（否则草浮空或陷进地里）。
+	float gh = ts_surface_height(root.xz, plan_dist);
 	vec3 n = ts_dem_normal(root.xz, 30.0);
+
+	// 落地高度出来之后，才算得出真正的「离相机多远」。它只用于淡出与着色，
+	// 绝不能回头喂给 ts_surface_height。
+	float view_dist = length(vec3(root.x, gh, root.z) - CAMERA_POSITION_WORLD);
 
 	// ── 能不能长草 ──
 	float ok = smoothstep(slope_min, slope_max, n.y);
@@ -62,7 +83,13 @@ void vertex() {
 	// 成片疏密：噪声低于阈值的地方直接秃掉
 	ok *= smoothstep(patch_bias - 0.25, patch_bias + 0.35, ts_fbm3(root.xz * patch_freq) + 0.5);
 	// 远处淡出
-	ok *= 1.0 - smoothstep(fade_dist - fade_band, fade_dist, dist);
+	ok *= 1.0 - smoothstep(fade_dist - fade_band, fade_dist, view_dist);
+
+	v_ok = ok;
+	v_gh = gh;
+	if (debug_mode > 0) {
+		ok = 1.0;
+	}
 
 	// 每株的随机相位与高矮，用根部坐标做种子 —— 同一株在任何一帧、任何一台
 	// 机器上都算出同样的值，不需要往实例里塞额外数据。
@@ -70,7 +97,10 @@ void vertex() {
 	float phase = (seed.x + 1.0) * 3.14159;
 	float vary = 0.72 + (seed.y + 1.0) * 0.34;
 
-	v_up = clamp(VERTEX.y / 0.5, 0.0, 1.0);
+	// 用 UV.y 而不是 VERTEX.y / 0.5：两圈草的叶高不同（近圈 0.55 m、远圈 1.05 m），
+	// 除以写死的 0.5 会让远圈有一半叶片的 v_up 都被 clamp 到 1 —— 整片远草
+	// 全是 tip_color，根深叶浅的层次只在近圈成立。UV.y 建网格时就是归一化高度。
+	v_up = UV.y;
 	v_shade = 0.86 + (seed.x + 1.0) * 0.14;
 
 	// 缩到 0 就等于剔除掉这一株（顶点全部退化到一点，光栅化直接丢弃）
@@ -98,7 +128,19 @@ void vertex() {
 void fragment() {
 	vec3 c = mix(root_color, grass_color, smoothstep(0.0, 0.45, v_up));
 	c = mix(c, tip_color, smoothstep(0.55, 1.0, v_up));
-	ALBEDO = c * v_shade;
+	c *= v_shade;
+
+	if (debug_mode == 2) {
+		c = vec3(v_ok);
+	} else if (debug_mode == 3) {
+		// 每 500 m 换一次色。草若落在海平面（高程纹理没送到）就是最底那一档，
+		// 与地形的颜色对不上，一眼能看出来。
+		float band = fract(v_gh / 500.0);
+		c = mix(vec3(0.10, 0.10, 0.45), vec3(0.95, 0.85, 0.25), band);
+	} else if (debug_mode == 4) {
+		c = vec3(1.0, 0.0, 1.0);
+	}
+	ALBEDO = c;
 	NORMAL = (VIEW_MATRIX * vec4(v_normal, 0.0)).xyz;
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;
@@ -111,7 +153,14 @@ void light() {
 	float k = texture(ramp, vec2(t, 0.5)).r;
 	// 根部压暗一档，让草丛底部有厚度感，而不是一片平的绿
 	k *= mix(0.82, 1.0, v_up);
-	// 【不要乘 ALBEDO】理由同 terrain.gdshader 的 light()：引擎会在之后自己乘，
-	// 这里再乘一次等于 albedo 平方，草会黑成一片。LIGHT_COLOR 已含 energy × PI。
-	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * k / PI;
+	// 【不要在 light() 里写 return】Godot 明令禁止，那不是警告而是编译错误，
+	// 整个着色器会失效并回退默认材质（见 v007）。诊断分支必须写成 if/else。
+	if (debug_mode >= 2) {
+		// 诊断模式把光照置平，让 ALBEDO 里编码的诊断值原样可见
+		DIFFUSE_LIGHT += vec3(1.0);
+	} else {
+		// 【不要乘 ALBEDO】理由同 terrain.gdshader 的 light()：引擎会在之后自己乘，
+		// 这里再乘一次等于 albedo 平方，草会黑成一片。LIGHT_COLOR 已含 energy × PI。
+		DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * k / PI;
+	}
 }

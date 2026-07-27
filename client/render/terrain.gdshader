@@ -55,15 +55,28 @@ uniform int debug_mode = 0;
 instance uniform vec4 level_tint = vec4(1.0, 1.0, 1.0, 1.0);
 
 varying vec3 v_world;
+/// 到相机的真实三维距离（地表高度已算进去）。只用于着色：ramp 远近混合。
 varying float v_view_dist;
+/// 到相机的**水平**距离。程序化细节的淡出用它，草地那边用的是同一个值，
+/// 两边的细节振幅才会一致。见 ts_plan_dist / ts_surface_height 的说明。
+varying float v_plan_dist;
 
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_view_dist = length(world - CAMERA_POSITION_WORLD);
 
-	float h = ts_surface_height(world.xz, v_view_dist);
+	// 【必须是水平距离】clipmap 节点的 y 恒为 0（顶点高度是下面才算出来的），
+	// 而相机的 y 是海拔。原先这里用 length(world - CAMERA_POSITION_WORLD)，
+	// 于是在那拉提（2231 m）任何一个顶点的距离都 ≥ 2231 m：
+	// detail_fade_dist=2600 → 近处细节只剩 15% 振幅，俯瞰机位下（离地 1400 m）
+	// 直接归零。F5 的「纯 DEM / 带细节」对照因此几乎看不出差别。
+	// 同一个错误让草地整片消失，见 ts_plan_dist 的说明。
+	v_plan_dist = ts_plan_dist(world.xz, CAMERA_POSITION_WORLD);
+
+	float h = ts_surface_height(world.xz, v_plan_dist);
 	v_world = vec3(world.x, h, world.z);
+	// 真实三维距离要等 h 出来之后才算得对。
+	v_view_dist = length(v_world - CAMERA_POSITION_WORLD);
 
 	// 裙边压到地形以下。放在记录 v_world 之后，这样裙边的着色仍按它所在
 	// 位置的地表算，从上往下看颜色连续，不会露出一圈异色。
@@ -78,7 +91,9 @@ void fragment() {
 	float e = mix(420.0, 30.0, ts_fine_weight(fuv));
 	vec3 n = ts_dem_normal(v_world.xz, e);
 
-	float dfade = clamp(1.0 - v_view_dist / detail_fade_dist, 0.0, 1.0);
+	// 用 v_plan_dist 而不是 v_view_dist：这里算的是细节位移的**法线**，
+	// 振幅必须和 vertex() 里实际位移用的振幅逐字一致，否则明暗和起伏对不上。
+	float dfade = clamp(1.0 - v_plan_dist / detail_fade_dist, 0.0, 1.0);
 	if (detail_gain > 0.001 && dfade > 0.0) {
 		float slope0 = 1.0 - n.y;
 		float amp = detail_amp * detail_gain * dfade * (1.0 + slope0 * detail_slope_boost);

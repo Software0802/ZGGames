@@ -102,6 +102,25 @@ float ts_detail_height(vec2 xz, float amp) {
 	return ts_fbm3(xz * detail_base_freq) * amp;
 }
 
+/// 相机到某个地表点的**水平**距离（米）。
+///
+/// 【必须用水平距离，不能用三维距离】
+/// clipmap 与草地的节点 y 恒为 0，顶点的真实高度是着色器加上去的，引擎侧并不知道；
+/// 而相机的 y 是**海拔**（那拉提 2219 m）。拿 y=0 的锚面去和相机算三维距离，
+/// 等于把整个海拔都算成「离相机的距离」——在那拉提，脚边一株草的 dist 也 ≥ 2217 m。
+///
+/// 这个错误曾经让**草地整片不可见**：草的淡出距离是 220 m，dist 恒为 2217 m 时
+/// 淡出系数恒为 0，叶片被缩成零面积（长度方向只有 y，缩到 0 就退化成一条线段），
+/// 光栅化直接丢弃 —— 三角面统计照常、材质与 uniform 全对，画面上什么都没有。
+/// 同一个错误还让地形的程序化细节在所有高海拔地标上被压到 15% 甚至完全关掉。
+/// 详见 docs/plans/v009。
+///
+/// 真正的「离相机多远」要等地表高度算出来之后再算（见各着色器里的 v_view_dist），
+/// 那个值只用于着色（ramp 混合、淡出），**不能**回头喂给 ts_surface_height。
+float ts_plan_dist(vec2 xz, vec3 cam_world) {
+	return length(xz - cam_world.xz);
+}
+
 /// DEM 法线。差分步长要贴着**数据的分辨率**（fine 层 28 m/px），
 /// 给大了会把真实的山脊磨平。
 vec3 ts_dem_normal(vec2 xz, float e) {
@@ -113,10 +132,16 @@ vec3 ts_dem_normal(vec2 xz, float e) {
 }
 
 /// 地表最终高度（真实 DEM + 程序化细节）。草、树、建筑都必须用这个函数落地，
-/// 否则会和地形对不齐。view_dist 用于按距离淡出细节，与地形着色器保持一致。
-float ts_surface_height(vec2 xz, float view_dist) {
+/// 否则会和地形对不齐。
+///
+/// 【plan_dist 的契约】第二个参数必须是 `ts_plan_dist(xz, CAMERA_POSITION_WORLD)`
+/// 的返回值，**所有调用方都一样**。它只取决于 xz 与相机，不取决于调用方是谁，
+/// 所以地形与草地一定算出同一个高度。
+/// 若某一方改用三维距离（含高度差），两边的细节振幅立刻不同 —— 草会浮空或陷进地里，
+/// 而且是「近处对得上、远处越来越歪」这种最难查的形态。
+float ts_surface_height(vec2 xz, float plan_dist) {
 	float h = ts_dem_height(xz);
-	float dfade = clamp(1.0 - view_dist / detail_fade_dist, 0.0, 1.0);
+	float dfade = clamp(1.0 - plan_dist / detail_fade_dist, 0.0, 1.0);
 	if (detail_gain > 0.001 && dfade > 0.0) {
 		vec3 n = ts_dem_normal(xz, 30.0);
 		float slope = 1.0 - n.y;

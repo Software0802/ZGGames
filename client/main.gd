@@ -9,6 +9,8 @@ extends Node3D
 ##   godot --headless --path . --quit-after 120      跑 DEM 自检
 ##   godot --path . -- --capture out/               逐个地标截图后退出
 ##   godot --path . -- --region kanas                指定起始地标
+##   godot --path . -- --region narati --cam ground --shot out/   单张速拍
+##   godot --path . -- --region narati --cam ground --grass-debug 2 --shot out/
 
 const START_REGION_DEFAULT := "narati"
 ## 截图模式下每处地标停留多少帧：要给分帧构建的窗口纹理留出建完的时间。
@@ -33,6 +35,10 @@ var _variants_dir := ""
 var _variant_idx := -1
 ## "overview" 俯瞰 / "ground" 贴地
 var _cam_mode := "overview"
+## 单张速拍：只对当前地标、当前机位拍一张就退出。
+## --capture 要跑 8 地标 × 2 机位 = 16 张，验证一处改动时太慢（软件渲染下几分钟）。
+var _shot_dir := ""
+var _shot_frames := CAPTURE_FRAMES
 
 @onready var _cam: FreeCam = $FreeCam
 @onready var _sun: DirectionalLight3D = $Sun
@@ -50,11 +56,19 @@ func _ready() -> void:
 	_region_idx = maxi(0, _region_keys.find(start))
 
 	_variants_dir = args.get("variants", "")
+	_shot_dir = args.get("shot", "")
+	_shot_frames = int(args.get("frames", CAPTURE_FRAMES))
+	if args.has("cam"):
+		_cam_mode = String(args["cam"])
 
 	_build_terrain()
+	if args.has("grass-debug"):
+		grass.set_debug(int(args["grass-debug"]))
 	_goto_region(_region_keys[_region_idx])
 
-	if _variants_dir != "":
+	if _shot_dir != "":
+		DirAccess.make_dir_recursive_absolute(_shot_dir)
+	elif _variants_dir != "":
 		DirAccess.make_dir_recursive_absolute(_variants_dir)
 		_hud.visible = false
 		_hud_visible = false
@@ -90,16 +104,26 @@ func _setup_sun() -> void:
 	_sun.look_at_from_position(Vector3.ZERO, -to_sun, Vector3.UP)
 
 
+## 取值型参数一律 `--key value`。放在一张表里而不是写一串 elif，
+## 是为了加参数时不用再碰解析逻辑。
+const ARG_KEYS := [
+	"capture", "region", "variants",
+	"cam",          ## overview | ground
+	"shot",         ## 只拍一张就退出（目录）
+	"frames",       ## 拍照前等多少帧
+	"grass-debug",  ## 草地诊断模式，见 grass.gdshader 的 debug_mode
+]
+
+
 func _parse_args() -> Dictionary:
 	var out := {}
 	var a := OS.get_cmdline_user_args()
 	for i in a.size():
-		if a[i] == "--capture" and i + 1 < a.size():
-			out["capture"] = a[i + 1]
-		elif a[i] == "--region" and i + 1 < a.size():
-			out["region"] = a[i + 1]
-		elif a[i] == "--variants" and i + 1 < a.size():
-			out["variants"] = a[i + 1]
+		if not a[i].begins_with("--") or i + 1 >= a.size():
+			continue
+		var key := a[i].substr(2)
+		if ARG_KEYS.has(key):
+			out[key] = a[i + 1]
 	return out
 
 
@@ -302,7 +326,9 @@ func _process(_delta: float) -> void:
 
 	if _hud_visible:
 		_update_hud()
-	if _variants_dir != "":
+	if _shot_dir != "":
+		_step_shot()
+	elif _variants_dir != "":
 		_step_variants()
 	elif _capture_dir != "":
 		_step_capture()
@@ -365,6 +391,18 @@ func _update_hud() -> void:
 
 
 # ───────────────────────────────────────────────────────────── 自动截图
+
+func _step_shot() -> void:
+	_capture_timer += 1
+	if _capture_timer < _shot_frames:
+		return
+	var key := _region_keys[_region_idx]
+	var img := get_viewport().get_texture().get_image()
+	var p := _shot_dir.path_join("%s_%s.png" % [key, _cam_mode])
+	img.save_png(p)
+	print("截图 %s" % p)
+	get_tree().quit()
+
 
 func _step_variants() -> void:
 	_capture_timer += 1

@@ -14,11 +14,33 @@ class Ring:
 	var extent: float   ## 覆盖范围（米，方形边长的一半）
 	var snap: float     ## 吸附步长（米）
 
-## [实例数, 覆盖半径(米), 叶片段数, 叶宽, 叶高]
+## count 实例数 / extent 覆盖半径(米) / hole 中间挖空半径(米) / segments 叶片段数
+## / width 叶宽 / height 叶高
+##
 ## 段数决定草叶能不能弯：近圈 3 段能被风吹出弧线，远圈 1 段是直片，够用。
+##
+## 【远圈必须挖洞】远圈用「少而大」的叶片换密度：12000 株铺 260 m，株距 4.7 m，
+## 单株 1.05 m 高 × 0.52 m 宽（再乘 vary 与 height_scale，那拉提实际到 2.6 m × 0.7 m）。
+## 那个尺寸在几十米外读起来是草，出现在脚边就是灌木 —— 而不挖洞的话，远圈的
+## 方形范围整个盖住近圈，脚边同时长着 1.4 m 的细草和 2.6 m 的巨叶，
+## 近圈那 21000 株密草全被压在底下看不见。这与 clipmap 每级挖掉上一级覆盖范围
+## 是同一件事，见 Clipmap.HOLE_SHRINK_CELLS 的说明。
+##
+## 【洞口必须留足重叠】两圈吸附到各自的栅格（近圈 9.75 m，远圈 32.5 m），
+## 中心每轴最多能差 9.75/2 + 32.5/2 ≈ 21.1 m。洞口若正好等于近圈的覆盖范围，
+## 这个偏移就会在某一侧留出一条**光秃的缝**。
+## 按 clipmap 的同一条规矩取「重叠 ≥ 2 倍最大偏移」（见 Clipmap.HOLE_SHRINK_CELLS）：
+## 需要 78 − hole ≥ 42.3，故 hole ≤ 35.8，取 34 m。
+## 代价只是 34–78 m 这一带两圈同时长草（密一点，无害），换来脚边不会出现巨叶。
 const RINGS := [
-	{"count": 21000, "extent": 78.0, "segments": 3, "width": 0.24, "height": 0.55},
-	{"count": 12000, "extent": 260.0, "segments": 1, "width": 0.52, "height": 1.05},
+	{
+		"count": 21000, "extent": 78.0, "hole": 0.0,
+		"segments": 3, "width": 0.24, "height": 0.55,
+	},
+	{
+		"count": 12000, "extent": 260.0, "hole": 34.0,
+		"segments": 1, "width": 0.52, "height": 1.05,
+	},
 ]
 
 var material: ShaderMaterial
@@ -38,8 +60,9 @@ func _ready() -> void:
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = mesh
-		mm.instance_count = int(cfg["count"])
-		_scatter(mm, float(cfg["extent"]))
+		_scatter(
+			mm, int(cfg["count"]), float(cfg["extent"]), float(cfg["hole"])
+		)
 
 		var mi := MultiMeshInstance3D.new()
 		mi.multimesh = mm
@@ -95,27 +118,45 @@ func _blade_mesh(segments: int, width: float, height: float) -> ArrayMesh:
 	return mesh
 
 
-## 在方形范围里撒点。用抖动网格而不是纯随机：纯随机会出现明显的空洞与结块，
-## 抖动网格既均匀又不规则。实例的 y 一律为 0，真实高度由着色器加。
-func _scatter(mm: MultiMesh, extent: float) -> void:
-	var n := mm.instance_count
-	var side := int(ceil(sqrt(float(n))))
+## 在方形范围里撒点，可选挖掉中间 hole×hole（半径，米）的方形。
+## 用抖动网格而不是纯随机：纯随机会出现明显的空洞与结块，抖动网格既均匀又不规则。
+## 实例的 y 一律为 0，真实高度由着色器加。
+##
+## 撒点先收进数组再一次性写进 MultiMesh：挖洞后实际株数少于 count，
+## 而 instance_count 必须在 set_instance_transform 之前定下来。
+func _scatter(mm: MultiMesh, count: int, extent: float, hole: float) -> void:
+	var side := int(ceil(sqrt(float(count))))
 	var step := extent * 2.0 / float(side)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 0x8ACE  # 固定种子：每次启动的草分布一致，便于比对截图
-	var t := Transform3D()
-	var i := 0
+	var placed: Array[Transform3D] = []
 	for gz in side:
 		for gx in side:
-			if i >= n:
+			if placed.size() >= count:
 				break
 			var x := -extent + (float(gx) + rng.randf()) * step
 			var z := -extent + (float(gz) + rng.randf()) * step
-			t.basis = Basis(Vector3.UP, rng.randf() * TAU)
+			var yaw := rng.randf() * TAU
+			# 洞里不撒。判据用**方形**（切比雪夫距离）而不是圆：
+			# 近圈的覆盖范围本身就是方形，用圆会在四个角上留下秃缝。
+			if hole > 0.0 and maxf(absf(x), absf(z)) < hole:
+				continue
+			var t := Transform3D()
+			t.basis = Basis(Vector3.UP, yaw)
 			t.origin = Vector3(x, 0.0, z)
-			mm.set_instance_transform(i, t)
-			i += 1
-	mm.visible_instance_count = n
+			placed.append(t)
+
+	mm.instance_count = placed.size()
+	for i in placed.size():
+		mm.set_instance_transform(i, placed[i])
+	mm.visible_instance_count = placed.size()
+
+
+## 诊断模式，取值见 grass.gdshader 的 debug_mode。
+## 排查「草看不见」时的固定顺序：先 4（几何在不在）→ 再 3（落地高度对不对）
+## → 再 2（生长条件把它掐掉了没有）→ 最后才是配色。
+func set_debug(mode: int) -> void:
+	material.set_shader_parameter("debug_mode", mode)
 
 
 func _process(delta: float) -> void:
