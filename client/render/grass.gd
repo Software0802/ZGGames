@@ -238,8 +238,11 @@ func snap_to(focus: Vector3) -> void:
 		)
 
 
-## 按季节与地标设置草色与长势。
-func apply_env(env: Dictionary, region: Dictionary) -> void:
+## 按环境档案设置草色与长势。
+## 档案由 RegionEnv.resolve() 一次算好（季节基表 + 地标覆写 + 派生量），
+## 这里只负责读 —— 以前长势的几个派生量是在这个函数里另算一遍的，
+## 和 main.gd 那边各算各的，迟早漂移。
+func apply_env(env: Dictionary) -> void:
 	var hex := String(env["grass"])
 	material.set_shader_parameter("grass_color", Color(hex).srgb_to_linear())
 	# 叶尖明显提亮、根部只压一点：地表基色用的是同一套季节色，
@@ -255,13 +258,7 @@ func apply_env(env: Dictionary, region: Dictionary) -> void:
 		"root_color", Color(hex).darkened(0.12).srgb_to_linear()
 	)
 
-	# 草的高矮直接反映草场质量：那拉提承载 1.8×，草深过膝；
-	# 冬窝子 0.6×，草稀且矮。这是数值表在画面上的直接体现，不是随手调的。
-	var cap := float(region.get("carrying_capacity", 1.0))
-	var density := float(env.get("grass_density", 1.0))
-	material.set_shader_parameter("height_scale", clampf(cap * density, 0.15, 1.9))
-
-	# 干旱地标的草线更高（低处是戈壁），湿润地标可以一直长到河谷底
-	var water := float(region["resource_mul"]["water"])
-	material.set_shader_parameter("alt_min", lerpf(1500.0, 350.0, clampf(water, 0.0, 1.6) / 1.6))
-	material.set_shader_parameter("patch_bias", lerpf(0.55, 0.05, clampf(cap, 0.5, 1.8) / 1.8))
+	# 长势三项的算法与理由都在 RegionEnv.resolve() 里，这里只搬运。
+	material.set_shader_parameter("height_scale", float(env["grass_height_scale"]))
+	material.set_shader_parameter("alt_min", float(env["grass_alt_min"]))
+	material.set_shader_parameter("patch_bias", float(env["grass_patch_bias"]))

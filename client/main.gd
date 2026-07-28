@@ -20,6 +20,12 @@ var clipmap: Clipmap
 var grass: GrassField
 var streamer: TerrainStreamer
 var terrain_mat: ShaderMaterial
+## 世界时钟。模拟状态，不是渲染状态 —— M2 上服务器持有它，客户端跟随。
+var clock := WorldClock.new()
+## 当前地标的完整环境档案（RegionEnv.resolve 的结果）
+var _env: Dictionary = {}
+## 上次重算天空时的钟面分钟数，用于限频，见 _process
+var _last_sky_minute := -999.0
 
 var _region_keys: PackedStringArray
 var _region_idx := 0
@@ -47,10 +53,18 @@ var _shot_frames := CAPTURE_FRAMES
 
 func _ready() -> void:
 	_run_dem_selftest()
-	_setup_sun()
 
 	_region_keys = Regions.keys()
 	var args := _parse_args()
+	if args.has("time"):
+		var m := WorldClock.parse_hhmm(String(args["time"]))
+		if m < 0.0:
+			push_error("--time 要 HH:MM，收到 %s" % args["time"])
+		else:
+			clock.minute_of_day = m
+	# 截图时时间必须停住，否则同一组对照图各拍在不同时刻，没法比
+	if args.has("shot") or args.has("capture") or args.has("variants"):
+		clock.running = false
 	_capture_dir = args.get("capture", "")
 	var start: String = args.get("region", START_REGION_DEFAULT)
 	_region_idx = maxi(0, _region_keys.find(start))
@@ -65,6 +79,8 @@ func _ready() -> void:
 	if args.has("grass-debug"):
 		grass.set_debug(int(args["grass-debug"]))
 	_goto_region(_region_keys[_region_idx])
+	# 放在 _goto_region 之后：_apply_sky 要读 _env，而 _env 是在那里面解析出来的
+	_apply_sun()
 
 	if _shot_dir != "":
 		DirAccess.make_dir_recursive_absolute(_shot_dir)
@@ -78,30 +94,26 @@ func _ready() -> void:
 		_goto_region(_region_keys[0])
 
 
-## 太阳角。写在代码里而不是场景里，是因为它有明确的取值理由，
-## 而 .tscn 里只会留下一个看不懂的 Transform3D 矩阵。
+## 太阳。位置与光色全部由 WorldClock 驱动 —— 交接文档 §07 的公式
+## `太阳角 = ((minuteOfDay/60 − 6)/24) × 2π`，实现见 shared/sim/world_clock.gd。
 ##
-## 仰角 50°：再高会把山坡的明暗差压没（正午卫星图效果），再低则大片背光坡全黑。
-## 方位取东南偏南 —— 相机默认从南往北看，太阳在身后偏左，
-## 北面的山脊既有受光面也有背光面，起伏才读得出来。
-## P3 后半段接上昼夜循环后，这里会改成由 WorldClock.minuteOfDay 驱动。
-const SUN_ELEVATION_DEG := 50.0
-## 方位角：0 = 正北，顺时针为正。150° 即东南偏南。
-const SUN_AZIMUTH_DEG := 150.0
-
-
-func _setup_sun() -> void:
+## v003 手调的那组静态值（仰角 50°、方位 150°）不再需要，但它当时的两条取值理由
+## 已经搬进 WorldClock：仰角上限 58°（再高会把山坡明暗差压没），
+## 正午能量 1.55（沿用）。
+func _apply_sun() -> void:
 	# 用方向向量 + look_at 定向，而不是直接写 rotation_degrees。
 	# 欧拉角的旋转顺序（Godot 默认 YXZ）很容易把仰角与方位角的语义搞反 ——
 	# 之前用 rotation_degrees(-52, 34, 0) 就把太阳放到了地形背面，
 	# 整片近景全黑，还一度被误判成阴影自遮挡。方向向量没有这种歧义。
-	var el := deg_to_rad(SUN_ELEVATION_DEG)
-	var az := deg_to_rad(SUN_AZIMUTH_DEG)
-	# 世界约定：+X 东，−Z 北（所以 +Z 是南）。这是「从原点指向太阳」的方向。
-	var to_sun := Vector3(sin(az) * cos(el), sin(el), -cos(az) * cos(el)).normalized()
+	var to_sun := clock.to_sun()
+	# 太阳落到地平线以下时 look_at 仍然有效，但光要关掉，否则会从地底往上打光。
 	# DirectionalLight3D 沿自身 −Z 发光，look_at 让 −Z 指向目标，
 	# 所以要看向「太阳的反方向」，光才是从太阳照过来。
 	_sun.look_at_from_position(Vector3.ZERO, -to_sun, Vector3.UP)
+	_sun.light_color = clock.sun_color()
+	_sun.light_energy = clock.sun_energy()
+	# 夜里直接关灯：能量为 0 时 Godot 仍会为这盏灯跑一遍光照通道，白花。
+	_sun.visible = not clock.is_night()
 
 	# 【阴影先关掉】现在场景里**一个投影体都没有**：地形与草都是
 	# SHADOW_CASTING_SETTING_OFF（地形是因为高度场自投影必出 acne 且超三角面预算，
@@ -113,6 +125,42 @@ func _setup_sun() -> void:
 	_sun.shadow_enabled = false
 
 
+## 天空与环境光随时刻走。
+##
+## 交接文档 §07 记着「天空为自定义 shader，注意手动做线性→sRGB 编码，
+## 否则整片天会暗掉两档」—— 自定义天空 shader 尚未做（见 v011 未完成项），
+## 这里先驱动 ProceduralSkyMaterial：昼夜关系先立起来，换成自定义 shader 时
+## 驱动逻辑照搬即可。
+func _apply_sky() -> void:
+	if _env.is_empty():
+		return
+	var e := ($WorldEnvironment as WorldEnvironment).environment
+	var d := clock.daylight()
+	var fog := Color(String(_env["fog"]))
+
+	var sky_mat := e.sky.sky_material
+	if sky_mat is ProceduralSkyMaterial:
+		var sm := sky_mat as ProceduralSkyMaterial
+		sm.sky_top_color = SKY_TOP_NIGHT.lerp(SKY_TOP_DAY, d)
+		# 地平线用当季的雾色，天黑时一起压下去 —— 雾色与天空地平线必须同色，
+		# 否则远山的轮廓会浮在一条色带上（v003 §五.1 就是靠改这个色定位到绕序问题的）。
+		var horizon := SKY_HORIZON_NIGHT.lerp(fog, d)
+		sm.sky_horizon_color = horizon
+		sm.ground_horizon_color = horizon
+	e.fog_light_color = SKY_HORIZON_NIGHT.lerp(fog, d)
+	# 夜里只剩天光，压到很低但不给 0：全黑的话地形会变成纯黑剪影，读不出地貌。
+	e.ambient_light_energy = lerpf(AMBIENT_ENERGY_NIGHT, AMBIENT_ENERGY_DAY, d)
+
+## 夜空与白天天顶的颜色。夜色偏靛（呼应色板里的天山靛 #2E5C8A），不是纯黑。
+const SKY_TOP_NIGHT := Color("#0b1626")
+const SKY_TOP_DAY := Color("#3f7fc4")
+const SKY_HORIZON_NIGHT := Color("#1b2536")
+const AMBIENT_ENERGY_NIGHT := 0.06
+const AMBIENT_ENERGY_DAY := 0.50
+## 天空底色每隔多少**游戏分钟**重算一次。见 _process 里的说明。
+const SKY_UPDATE_MINUTES := 2.0
+
+
 ## 取值型参数一律 `--key value`。放在一张表里而不是写一串 elif，
 ## 是为了加参数时不用再碰解析逻辑。
 const ARG_KEYS := [
@@ -121,6 +169,7 @@ const ARG_KEYS := [
 	"shot",         ## 只拍一张就退出（目录）
 	"frames",       ## 拍照前等多少帧
 	"grass-debug",  ## 草地诊断模式，见 grass.gdshader 的 debug_mode
+	"time",         ## HH:MM，设定世界时钟。截图模式下时钟自动停走
 ]
 
 
@@ -231,6 +280,9 @@ func _goto_region(key: String) -> void:
 	var lat := float(r["lat"])
 
 	GeoRef.set_origin(lon, lat)
+	# 太阳按**真太阳时**走，而真太阳时取决于经度：全疆用北京时间，
+	# 中央经线却在 120°E，那拉提差了 2 小时 22 分。见 WorldClock.set_longitude()。
+	clock.set_longitude(lon)
 	streamer.build_now(lon, lat)
 	streamer.apply_all()
 	_apply_season_for(r)
@@ -269,60 +321,60 @@ func _goto_region(key: String) -> void:
 ## `source_color` 提示只影响编辑器的取色器，从 GDScript 用 set_shader_parameter
 ## 传进去的 Color 引擎不会替你转换 —— 不转的话整幅画面会过曝，草原会变成荧光黄。
 func _apply_season_for(r: Dictionary) -> void:
-	var seasons: Array = r.get("seasons", ["summer"])
-	var season := String(seasons[0])
-	var env := Toon.season_env(season)
+	# 一次解析出完整档案，渲染侧只负责读 —— 派生量（雪线、干旱带、林线、草线、长势）
+	# 以前散在这里和 grass.gd 两处各算各的，现在统一在 RegionEnv.resolve()。
+	_env = RegionEnv.resolve(r)
 
+	# 【必须 srgb_to_linear】引擎**不会**替 source_color uniform 做这个转换，
+	# 这一条已由 tests/color_space_check.tscn 实测钉死（v011），别按直觉删掉。
 	var set_col := func(name: String, hex: String) -> void:
 		terrain_mat.set_shader_parameter(name, Color(hex).srgb_to_linear())
 
-	# 地表基色用 ground 而不是 grass：SEASON_ENV 里的 grass 是给草地实例的颜色，
-	# 把它铺满整个地表会让喀纳斯的秋色变成一整片火星红。
-	#
-	# 【压暗系数从 0.30 降到 0.12】原来压 0.30 是在草**看不见**的时候定的
-	# （见 v009：草被淡出成零面积），当时没有参照物，只能凭「草要比地表亮」的原则给。
-	# 草出来之后这个系数就站不住了：叶片收窄成丛之后地表必然从缝里透出来，
-	# 压暗 30% 的地表会让每一条缝都读成一个黑洞，整片草原像长在深色泥地上。
-	# 0.12 只留下够分辨「草是长出来的一层」的那一点点差，缝隙读起来是草的暗部。
-	set_col.call("color_grass", Color(String(env["ground"])).darkened(0.12).to_html(false))
-	set_col.call("color_dry", "#a89050")
-	set_col.call("color_rock", "#6b675e")
-	set_col.call("color_snow", "#eaf0f2")
-	set_col.call("color_sand", "#bfa068")
-	terrain_mat.set_shader_parameter("snow_line", float(env["snow_line"]))
-
-	# 干旱带阈值按地标的水资源乘数走：吐鲁番戈壁的沙色要一直铺到很高，
-	# 而伊犁河谷同样高度上是草。这是资源表在视觉上的直接体现。
-	var water := float(r["resource_mul"]["water"])
-	terrain_mat.set_shader_parameter("dry_below", lerpf(1700.0, 400.0, clampf(water, 0.0, 1.6) / 1.6))
-	# 林线随纬度降低：阿尔泰山（48°N）的云杉线远低于天山（43°N）。
-	terrain_mat.set_shader_parameter("tree_line", lerpf(2900.0, 2100.0, clampf((float(r["lat"]) - 39.0) / 10.0, 0.0, 1.0)))
+	# 地表基色用 ground 而不是 grass：grass 是给草地实例的颜色，
+	# 把它铺满整个地表会让喀纳斯的秋色变成一整片火星红。压暗系数见 RegionEnv。
+	set_col.call("color_grass", String(_env["ground_base"]))
+	set_col.call("color_dry", String(_env["color_dry"]))
+	set_col.call("color_rock", String(_env["color_rock"]))
+	set_col.call("color_snow", String(_env["color_snow"]))
+	set_col.call("color_sand", String(_env["color_sand"]))
+	terrain_mat.set_shader_parameter("snow_line", float(_env["snow_line"]))
+	terrain_mat.set_shader_parameter("dry_below", float(_env["dry_below"]))
+	terrain_mat.set_shader_parameter("tree_line", float(_env["tree_line"]))
 
 	if OS.get_cmdline_user_args().has("--verbose"):
-		var gh := String(env["ground"])
-		print("[env] %s season=%s ground=%s darkened=%s linear=%s" % [
-			r["name"], season, gh,
-			Color(gh).darkened(0.30).to_html(false),
-			str(Color(Color(gh).darkened(0.30).to_html(false)).srgb_to_linear()),
+		print("[env] %s season=%s grass=%s ground=%s 雾 %.0f–%.0f m" % [
+			r["name"], _env["season"], _env["grass"], _env["ground"],
+			_env["fog_begin"], _env["fog_end"],
 		])
 
-	grass.apply_env(env, r)
+	grass.apply_env(_env)
 
-	var fog := Color(String(env["fog"]))
 	var e := ($WorldEnvironment as WorldEnvironment).environment
-	e.fog_light_color = fog
-	var sky_mat := e.sky.sky_material
-	if sky_mat is ProceduralSkyMaterial:
-		var sm := sky_mat as ProceduralSkyMaterial
-		sm.sky_horizon_color = fog
-		sm.ground_horizon_color = fog
+	e.fog_light_color = Color(String(_env["fog"]))
+	# §07 的 fogNear/fogFar 是原型那个房间尺度世界的值，套到 16.4 km 的视距上
+	# 会把整片天山糊没 —— RegionEnv 只继承季节之间的相对关系，绝对值按世界尺度给。
+	e.fog_depth_begin = float(_env["fog_begin"])
+	e.fog_depth_end = float(_env["fog_end"])
+	_apply_sky()
 
 
 # ───────────────────────────────────────────────────────────── 每帧
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if clipmap == null:
 		return
+
+	if clock.running:
+		clock.advance(delta)
+		# 太阳每帧更新（改几个属性，很便宜），天空**限频**。
+		# 【为什么必须限频】改 ProceduralSkyMaterial 的颜色会让 Godot 重烘一遍
+		# 天空的辐照度立方体贴图。每帧改就等于每帧重烘：实测 draw call
+		# 从 80 涨到 118（预算 180），而画面上根本看不出区别 ——
+		# 太阳颜色和方向本来就是每帧连续变的，天空底色隔两分钟跳一档没人看得出。
+		_apply_sun()
+		if absf(clock.minute_of_day - _last_sky_minute) >= SKY_UPDATE_MINUTES:
+			_last_sky_minute = clock.minute_of_day
+			_apply_sky()
 
 	# 浮动原点：相机跑远了就把整个世界拉回锚点附近。
 	# Vector3 是 32 位，离原点几千米以上顶点就开始抖。
@@ -368,6 +420,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			# 关掉裙边：用来判断画面上的接缝到底来自 clipmap 分级还是来自数据。
 			_skirt_on = not _skirt_on
 			clipmap.set_skirt_scale(1.0 if _skirt_on else 0.0)
+		KEY_F7:
+			# 停住时间。调配色时必须能停 —— 时间一直走，改一个参数
+			# 看到的差别里分不清哪些是参数带来的、哪些是太阳挪了。
+			clock.running = not clock.running
+		KEY_F8:
+			# 快进两小时。用来快速走一遍晨昏，不用等真实时间。
+			clock.minute_of_day = fposmod(clock.minute_of_day + 120.0, WorldClock.DAY_MINUTES)
+			_apply_sun()
+			_apply_sky()
 
 
 # ───────────────────────────────────────────────────────────── 调试 HUD
@@ -385,6 +446,16 @@ func _update_hud() -> void:
 
 	var lines := [
 		"[b]%s[/b]   [ ] 切换地标" % r.get("name", "?"),
+		"时刻  [b]%s[/b] 北京时间  %s   日照 %.0f%%   季节 %s   (F7 停 / F8 +2h)" % [
+			clock.hhmm(),
+			"[color=#5a6b86]夜[/color]" if clock.is_night() else "[color=#f0cd84]昼[/color]",
+			clock.daylight() * 100.0,
+			_env.get("season", "?"),
+		],
+		"[color=#a8b39e]真太阳时 %s（新疆用北京时间，此地时差 %+.0f 分）[/color]" % [
+			"%02d:%02d" % [int(clock.solar_minute()) / 60, int(clock.solar_minute()) % 60],
+			clock.solar_offset_min,
+		],
 		"经纬  %.5f, %.5f" % [geo[0], geo[1]],
 		"相机  海拔 %.0f m   离地 %.0f m" % [_cam.position.y, _cam.position.y - ground],
 		"地面  %.0f m   [color=#8fb8dd]%s[/color]" % [ground, layer_note],
