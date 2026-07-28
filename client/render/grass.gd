@@ -17,8 +17,8 @@ class Ring:
 ## [实例数, 覆盖半径(米), 叶片段数, 叶宽, 叶高]
 ## 段数决定草叶能不能弯：近圈 3 段能被风吹出弧线，远圈 1 段是直片，够用。
 const RINGS := [
-	{"count": 21000, "extent": 78.0, "segments": 3, "width": 0.24, "height": 0.55},
-	{"count": 12000, "extent": 260.0, "segments": 1, "width": 0.52, "height": 1.05},
+	{"count": 21000, "extent": 66.0, "segments": 3, "width": 0.30, "height": 0.62},
+	{"count": 12000, "extent": 240.0, "segments": 1, "width": 0.56, "height": 1.08},
 ]
 
 var material: ShaderMaterial

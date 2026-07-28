@@ -18,12 +18,16 @@ var clipmap: Clipmap
 var grass: GrassField
 var streamer: TerrainStreamer
 var terrain_mat: ShaderMaterial
+## 那拉提夏牧场营地：本工程第一处精修建模场景（毡房/羊圈/羊群/马/云杉）。
+## 常驻那拉提，不随起始地标变化；羊群的轻量 AI 与落地由它自己管。
+var camp: PastureCamp
 
 var _region_keys: PackedStringArray
 var _region_idx := 0
 var _detail_on := true
 var _skirt_on := true
-var _hud_visible := true
+# 调试面板默认隐藏：游戏画面默认是干净的，F3 才打开数据面板
+var _hud_visible := false
 
 # 截图模式
 var _capture_dir := ""
@@ -37,6 +41,12 @@ var _cam_mode := "overview"
 @onready var _cam: FreeCam = $FreeCam
 @onready var _sun: DirectionalLight3D = $Sun
 @onready var _hud: RichTextLabel = $UI/Hud
+@onready var _ui: CanvasLayer = $UI
+@onready var _title_name: Label = $UI/TitleCard/VBox/RegionName
+@onready var _title_info: Label = $UI/TitleCard/VBox/RegionInfo
+@onready var _sky_mat: ShaderMaterial = ($WorldEnvironment as WorldEnvironment).environment.sky.sky_material
+
+var _sky_time := 0.0
 
 
 func _ready() -> void:
@@ -56,7 +66,7 @@ func _ready() -> void:
 
 	if _variants_dir != "":
 		DirAccess.make_dir_recursive_absolute(_variants_dir)
-		_hud.visible = false
+		_ui.visible = false
 		_hud_visible = false
 	elif _capture_dir != "":
 		DirAccess.make_dir_recursive_absolute(_capture_dir)
@@ -88,6 +98,8 @@ func _setup_sun() -> void:
 	# DirectionalLight3D 沿自身 −Z 发光，look_at 让 −Z 指向目标，
 	# 所以要看向「太阳的反方向」，光才是从太阳照过来。
 	_sun.look_at_from_position(Vector3.ZERO, -to_sun, Vector3.UP)
+	# 天上的太阳盘与地面光照用同一个方向，两处必须一致
+	_sky_mat.set_shader_parameter("sun_dir", to_sun)
 
 
 func _parse_args() -> Dictionary:
@@ -130,6 +142,7 @@ const VARIANTS := [
 
 func _apply_variant(v: Dictionary) -> void:
 	terrain_mat.set_shader_parameter("detail_gain", float(v.get("detail", 1.0)))
+	TerrainHeight.detail_gain = float(v.get("detail", 1.0))
 	clipmap.set_skirt_scale(float(v.get("skirt_scale", 1.0)))
 	var dbg := 0
 	if v.get("flat", false):
@@ -187,6 +200,15 @@ func _build_terrain() -> void:
 	# 地形与草必须用同一组高程窗口 uniform，否则草会浮空或陷进地里
 	streamer.register(terrain_mat)
 	streamer.register(grass.material)
+	# 细节噪声的梯度表：GPU 采样与 CPU 落地复算用同一份字节（见 terrain_height.gd）
+	terrain_mat.set_shader_parameter("grad_lut", TerrainHeight.lut_texture())
+	grass.material.set_shader_parameter("grad_lut", TerrainHeight.lut_texture())
+
+	# 营地建在那拉提（与起始地标无关，它就是「一处场景」的精修样板）
+	camp = PastureCamp.new()
+	camp.name = "PastureCamp"
+	add_child(camp)
+	camp.build(Regions.get_region("narati"))
 
 
 ## 跳到某个地标：重设锚点、强制建好窗口、把相机放到地面之上。
@@ -227,7 +249,9 @@ func _goto_region(key: String) -> void:
 	_cam._pitch = pitch
 	clipmap.snap_to(_cam.position)
 	grass.snap_to(_cam.position)
-	_update_hud()
+	_update_title()
+	if _hud_visible:
+		_update_hud()
 
 
 ## 按地标所属季节设置雪线与地表配色。P3 会接上完整的 EnvProfile 与昼夜。
@@ -247,7 +271,7 @@ func _apply_season_for(r: Dictionary) -> void:
 	# 把它铺满整个地表会让喀纳斯的秋色变成一整片火星红。
 	# 地表基色用 ground 且再压暗一档：草地实例会盖在它上面，
 	# 两者同亮度会糊成一片。压暗后草才显得是「长出来的一层」。
-	set_col.call("color_grass", Color(String(env["ground"])).darkened(0.30).to_html(false))
+	set_col.call("color_grass", Color(String(env["ground"])).darkened(0.22).to_html(false))
 	set_col.call("color_dry", "#a89050")
 	set_col.call("color_rock", "#6b675e")
 	set_col.call("color_snow", "#eaf0f2")
@@ -271,14 +295,16 @@ func _apply_season_for(r: Dictionary) -> void:
 
 	grass.apply_env(env, r)
 
+	# 雾色、天空地平线色必须同出一源：远山消隐处要无缝接进天空。
+	# 天空是自定义 shader（sky.gdshader），不再走 ProceduralSkyMaterial。
 	var fog := Color(String(env["fog"]))
 	var e := ($WorldEnvironment as WorldEnvironment).environment
 	e.fog_light_color = fog
-	var sky_mat := e.sky.sky_material
-	if sky_mat is ProceduralSkyMaterial:
-		var sm := sky_mat as ProceduralSkyMaterial
-		sm.sky_horizon_color = fog
-		sm.ground_horizon_color = fog
+	var fog_lin := fog.srgb_to_linear()
+	_sky_mat.set_shader_parameter("horizon_color", fog_lin)
+	_sky_mat.set_shader_parameter(
+		"ground_color", Color(fog_lin.r * 0.55, fog_lin.g * 0.58, fog_lin.b * 0.56)
+	)
 
 
 # ───────────────────────────────────────────────────────────── 每帧
@@ -299,6 +325,12 @@ func _process(_delta: float) -> void:
 	streamer.apply_all()
 	clipmap.snap_to(_cam.position)
 	grass.snap_to(_cam.position)
+	if camp != null:
+		camp.tick(_delta, _cam.position)
+		grass.material.set_shader_parameter("tramp_mask", camp.tramp_mask())
+
+	_sky_time += _delta
+	_sky_mat.set_shader_parameter("cloud_time", _sky_time)
 
 	if _hud_visible:
 		_update_hud()
@@ -323,8 +355,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_hud.visible = _hud_visible
 		KEY_F5:
 			# 纯 DEM / 叠加程序化细节 对照。这是「哪部分是真实数据」的直观答案。
+			# CPU 侧同步：营地的落地高度必须与地形渲染高度用同一个开关。
 			_detail_on = not _detail_on
 			terrain_mat.set_shader_parameter("detail_gain", 1.0 if _detail_on else 0.0)
+			TerrainHeight.detail_gain = 1.0 if _detail_on else 0.0
 		KEY_F6:
 			# 关掉裙边：用来判断画面上的接缝到底来自 clipmap 分级还是来自数据。
 			_skirt_on = not _skirt_on
@@ -332,6 +366,21 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # ───────────────────────────────────────────────────────────── 调试 HUD
+
+const SEASON_CN := {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
+
+
+## 标题卡：地标名 + 季节/海拔/经纬。切地标时更新一次即可，不用每帧刷。
+func _update_title() -> void:
+	var key := String(_region_keys[_region_idx])
+	var r := Regions.get_region(key)
+	var seasons: Array = r.get("seasons", [])
+	var season_cn: String = SEASON_CN.get(String(seasons[0]) if seasons.size() > 0 else "", "")
+	_title_name.text = String(r.get("name", key))
+	_title_info.text = "%s季 · 海拔 %.0f m · %.2f°E %.2f°N" % [
+		season_cn, Regions.altitude_m(key), float(r["lon"]), float(r["lat"]),
+	]
+
 
 func _update_hud() -> void:
 	var geo: Array = GeoRef.local_to_geo(_cam.position)
@@ -345,7 +394,7 @@ func _update_hud() -> void:
 		layer_note = "%s  z=%d  %.0f m/px" % [src["layer"], src["zoom"], mpp]
 
 	var lines := [
-		"[b]%s[/b]   [ ] 切换地标" % r.get("name", "?"),
+		"[b]%s[/b]" % r.get("name", "?"),
 		"经纬  %.5f, %.5f" % [geo[0], geo[1]],
 		"相机  海拔 %.0f m   离地 %.0f m" % [_cam.position.y, _cam.position.y - ground],
 		"地面  %.0f m   [color=#8fb8dd]%s[/color]" % [ground, layer_note],

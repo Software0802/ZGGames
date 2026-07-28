@@ -31,3 +31,6 @@ desktop.ini
 
 # 原始交付包（已解包到 docs/reference/）
 天山牧歌游戏原型.zip
+
+# 会话验证截图（可再生，不入版本库）
+out/

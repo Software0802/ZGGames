@@ -60,7 +60,10 @@ varying float v_view_dist;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_view_dist = length(world - CAMERA_POSITION_WORLD);
+	// 【用水平距离】此处 world.y 还是位移前的 0，三维距离会把海拔算进去：
+	// 那拉提 2200 m 处 detail_fade_dist(2600) 几乎把近景细节层整体压没，
+	// 地面视角成了「光滑丝绒」。距离衰减的语义是「离相机多远」，与海拔无关。
+	v_view_dist = length(world.xz - CAMERA_POSITION_WORLD.xz);
 
 	float h = ts_surface_height(world.xz, v_view_dist);
 	v_world = vec3(world.x, h, world.z);

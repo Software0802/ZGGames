@@ -21,7 +21,7 @@ uniform vec3 tip_color : source_color = vec3(0.30, 0.45, 0.09);
 uniform vec3 root_color : source_color = vec3(0.06, 0.14, 0.04);
 
 uniform float wind_time = 0.0;
-uniform float wind_strength = 0.16;
+uniform float wind_strength = 0.20;
 uniform float wind_freq = 1.9;
 
 /// 草长的条件。牧场看得见的「草深过膝」就靠 height_scale 拉高。
@@ -42,6 +42,9 @@ uniform float fade_band = 60.0;
 uniform sampler2D ramp : filter_nearest, repeat_disable;
 uniform float wrap_factor = 0.45;
 
+/// 营地踩踏圈：(x, z, 半径, 踩低强度)，世界局部坐标，每帧由 PastureCamp 写入。
+uniform vec4 tramp_mask[6];
+
 varying vec3 v_normal;
 varying float v_up;      ///< 顶点在草叶上的相对高度 0..1
 varying float v_shade;   ///< 每株的明度扰动
@@ -50,19 +53,23 @@ varying float v_shade;   ///< 每株的明度扰动
 void vertex() {
 	// MultiMesh 的实例变换已经乘进 MODEL_MATRIX，第四列就是这株草的根部世界坐标。
 	vec3 root = MODEL_MATRIX[3].xyz;
-	float dist = length(root - CAMERA_POSITION_WORLD);
+	// 【用水平距离，不要用三维距离】root 的 y 恒为 0（真实高度在下方 gh 里加），
+	// 而相机在高海拔地区有两三千米——三维距离会恒大于 fade_dist，
+	// 全疆的草被距离淡出整体清零（本工程实测：那拉提 2200 m 一株不剩，
+	// 只有接近海平面的点能长草）。草的衰减语义是「离玩家多远」，与海拔无关。
+	float dist = length(root.xz - CAMERA_POSITION_WORLD.xz);
 
 	float gh = ts_surface_height(root.xz, dist);
 	vec3 n = ts_dem_normal(root.xz, 30.0);
 
 	// ── 能不能长草 ──
-	float ok = smoothstep(slope_min, slope_max, n.y);
-	ok *= smoothstep(alt_min - alt_blend, alt_min + alt_blend, gh);
-	ok *= 1.0 - smoothstep(alt_max - alt_blend, alt_max + alt_blend, gh);
-	// 成片疏密：噪声低于阈值的地方直接秃掉
-	ok *= smoothstep(patch_bias - 0.25, patch_bias + 0.35, ts_fbm3(root.xz * patch_freq) + 0.5);
-	// 远处淡出
-	ok *= 1.0 - smoothstep(fade_dist - fade_band, fade_dist, dist);
+	float g_slope = smoothstep(slope_min, slope_max, n.y);
+	float g_alt = smoothstep(alt_min - alt_blend, alt_min + alt_blend, gh)
+		* (1.0 - smoothstep(alt_max - alt_blend, alt_max + alt_blend, gh));
+	float g_patch = smoothstep(patch_bias - 0.25, patch_bias + 0.35, ts_fbm3(root.xz * patch_freq) + 0.5);
+	float g_fade = 1.0 - smoothstep(fade_dist - fade_band, fade_dist, dist);
+	// 能不能长草：坡度、海拔上下限、成片疏密、距离淡出
+	float ok = g_slope * g_alt * g_patch * g_fade;
 
 	// 每株的随机相位与高矮，用根部坐标做种子 —— 同一株在任何一帧、任何一台
 	// 机器上都算出同样的值，不需要往实例里塞额外数据。
@@ -73,8 +80,20 @@ void vertex() {
 	v_up = clamp(VERTEX.y / 0.5, 0.0, 1.0);
 	v_shade = 0.86 + (seed.x + 1.0) * 0.14;
 
+	// ── 营地踩踏圈 ──
+	// 毡房门口、羊圈里的草被人畜踩低（不是拔光），地面读作「踩实的营地」。
+	// 掩码由 PastureCamp 按当帧世界坐标写入（浮动原点下必须每帧同步）。
+	float tramp = 1.0;
+	for (int i = 0; i < 6; i++) {
+		float r = tramp_mask[i].z;
+		if (r > 0.01) {
+			float d = distance(root.xz, tramp_mask[i].xy);
+			tramp = min(tramp, mix(1.0 - tramp_mask[i].w, 1.0, smoothstep(r * 0.5, r, d)));
+		}
+	}
+
 	// 缩到 0 就等于剔除掉这一株（顶点全部退化到一点，光栅化直接丢弃）
-	vec3 local = VERTEX * vec3(vary, vary * height_scale * ok, vary);
+	vec3 local = VERTEX * vec3(vary, vary * height_scale * ok * tramp, vary);
 
 	// ── 风 ──
 	// 按顶点高度加权：根部不动，叶尖摆幅最大。两个频率叠加，避免整片同步摆动。

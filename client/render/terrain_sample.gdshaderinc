@@ -30,11 +30,19 @@ uniform float detail_slope_boost = 3.4;
 uniform float detail_fade_dist = 2600.0;
 
 // ── 噪声 ──
-// 哈希梯度噪声。不用查表贴图：省一张纹理，不受纹理过滤影响，
-// 且 CPU 侧能用同样的公式复算出完全一致的结果。
+// 查表梯度噪声：256×256 的 RG8 梯度表，CPU 生成、GPU 采样同一份字节。
+//
+// 【为什么必须查表】CPU 放置的物件（毡房、羊、马）要按渲染地表的同一高度落地，
+// 即 CPU 必须能复算这个噪声。sin 哈希是混沌函数，float32 与 float64 结果不相关；
+// 整数哈希理论上逐比特可复算，但实测在部分驱动/编译器上 uint 位运算不可靠
+// （A/B 对比：换整数哈希后细节层与草全部消失，换回 sin 哈希恢复）。
+// 查表则与两侧的浮点/整数语义完全解耦 —— 同一份字节，天然逐比特一致。
+// 生成与 CPU 读取见 client/world/terrain_height.gd。
+uniform sampler2D grad_lut : filter_nearest, repeat_disable;
+
 vec2 ts_hash2(vec2 p) {
-	p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-	return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+	ivec2 ip = ivec2(floor(p)) & ivec2(255);
+	return textureLod(grad_lut, (vec2(ip) + 0.5) / 256.0, 0.0).rg * 2.0 - 1.0;
 }
 
 float ts_gnoise(vec2 p) {
